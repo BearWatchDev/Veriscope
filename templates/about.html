@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About - Veriscope</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <img src="{{ url_for('static', filename='img/veriscope.png') }}" alt="Veriscope Logo" class="logo-img">
+                <div class="logo-text">
+                    <pre class="ascii-logo">╦  ╦┌─┐┬─┐┬┌─┐┌─┐┌─┐┌─┐┌─┐
+╚╗╔╝├┤ ├┬┘│└─┐│  │ │├─┘├┤
+ ╚╝ └─┘┴└─┴└─┘└─┘└─┘┴  └─┘</pre>
+                </div>
+            </div>
+            <p>Deobfuscate Malware <span class="arrow-icon">▶</span> Extract IOCs <span class="arrow-icon">▶</span> Generate YARA/Sigma Detection Rules</p>
+            <nav>
+                <a href="/"><span class="nav-icon nav-icon-large">◈</span> Analyze</a>
+                <a href="/techniques"><span class="nav-icon nav-icon-large">◎</span> ATT&CK Techniques</a>
+                <a href="/about"><span class="nav-icon">ⓘ</span> About</a>
+            </nav>
+        </header>
+
+        <main>
+            <h2>About Veriscope</h2>
+
+            <div class="about-section">
+                <h3>What is Veriscope?</h3>
+                <p>
+                    Veriscope is a specialized malware analysis and detection engineering platform designed for security analysts,
+                    threat hunters, and SOC teams. It automates the tedious, time-consuming process of transforming raw malware
+                    artifacts into actionable detection rules and threat intelligence.
+                </p>
+                <p>
+                    Traditional malware analysis workflows require analysts to manually extract strings, identify indicators of
+                    compromise, research MITRE ATT&CK techniques, and hand-craft detection rules for YARA and SIEM platforms.
+                    This process can take hours or even days per sample. Veriscope compresses this entire workflow into a single
+                    automated pipeline, delivering comprehensive analysis results in seconds.
+                </p>
+            </div>
+
+            <div class="about-section">
+                <h3>The Challenge</h3>
+                <p>
+                    Modern malware increasingly relies on obfuscation techniques—Base64 encoding, hexadecimal encoding, URL encoding,
+                    PowerShell obfuscation, and multi-layer encoding chains. Analysts waste valuable time manually decoding these
+                    layers before they can even begin their investigation.
+                </p>
+                <p>
+                    Once decoded, extracting actionable IOCs (URLs, IP addresses, domains, registry keys, mutex names, file paths,
+                    cryptocurrency addresses) requires pattern matching expertise and careful validation. Mapping these behaviors to
+                    MITRE ATT&CK techniques demands deep framework knowledge. Finally, writing production-ready YARA and Sigma rules
+                    requires specialized syntax knowledge and careful testing.
+                </p>
+                <p>
+                    Veriscope eliminates these bottlenecks by automating the entire chain: deobfuscation → IOC extraction →
+                    ATT&CK mapping → rule generation.
+                </p>
+            </div>
+
+            <div class="about-section">
+                <h3>Core Capabilities</h3>
+                <div class="capability-grid">
+                    <div class="capability-card">
+                        <h4>Multi-Layer Deobfuscation</h4>
+                        <p>Automatically detects and decodes Base64, hexadecimal, URL encoding, PowerShell obfuscation, and nested
+                        encoding chains. Handles real-world malware obfuscation patterns including mixed-encoding attacks.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h4>IOC Extraction</h4>
+                        <p>Extracts URLs, IPv4 addresses, domains, email addresses, registry keys, Windows mutex names, file paths,
+                        and cryptocurrency wallet addresses. Uses regex patterns validated against real-world malware samples.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h4>Entropy & Keyword Analysis</h4>
+                        <p>Calculates Shannon entropy to identify encrypted or compressed payloads. Performs keyword analysis to
+                        detect suspicious strings, API calls, and malicious patterns commonly seen in malware.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h4>MITRE ATT&CK Mapping</h4>
+                        <p>Maps detected behaviors to MITRE ATT&CK techniques with confidence scoring. Covers persistence, privilege
+                        escalation, defense evasion, credential access, discovery, lateral movement, command and control, and exfiltration tactics.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h4>YARA Rule Generation</h4>
+                        <p>Generates file-based detection signatures with string conditions, metadata, and configurable thresholds.
+                        Supports both general catch-all rules and IOC-specific rules for targeted detection.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h4>Sigma Rule Generation</h4>
+                        <p>Creates SIEM-compatible detection rules in Sigma format (YAML). Generates log-based detections for network
+                        activity, process execution, registry modifications, and file operations.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="about-section">
+                <h3>Technical Architecture</h3>
+                <ul class="tech-list">
+                    <li><strong>Version:</strong> 1.0.0</li>
+                    <li><strong>License:</strong> MIT Open Source</li>
+                    <li><strong>Platform:</strong> Linux-first design, cross-platform compatible (Windows, macOS)</li>
+                    <li><strong>Dependencies:</strong> Minimal footprint—Python 3.8+ standard library, Flask for web interface</li>
+                    <li><strong>Performance:</strong> Processes typical malware samples (1-10MB) in under 5 seconds</li>
+                    <li><strong>Interfaces:</strong> Command-line tool, Web GUI, REST API (for integration)</li>
+                </ul>
+            </div>
+
+            <div class="about-section">
+                <h3>Security & Usage Guidelines</h3>
+                <div class="warning-box">
+                    <h4>Static Analysis Only</h4>
+                    <p>Veriscope performs static text-based analysis exclusively. It does NOT execute binaries, run sandboxed
+                    environments, or perform dynamic analysis. All operations are read-only and safe for production analyst workstations.</p>
+                </div>
+                <div class="warning-box">
+                    <h4>Detection Rules are Templates</h4>
+                    <p>Generated YARA and Sigma rules are TEMPLATES designed to accelerate detection engineering. They require
+                    human review, tuning, and validation before deployment in production environments. Always test rules in a
+                    controlled environment first to avoid false positives.</p>
+                </div>
+                <div class="warning-box">
+                    <h4>ATT&CK Mapping Limitations</h4>
+                    <p>Technique mappings are heuristic-based and derived from keyword matching and pattern detection. They are NOT
+                    definitive behavioral analysis. Always correlate with additional threat intelligence, sandbox reports, and manual
+                    analysis before making attribution decisions.</p>
+                </div>
+            </div>
+
+            <div class="about-section">
+                <h3>Responsible Use</h3>
+                <p class="ethics-statement">
+                    Veriscope is built for defensive security operations. Use it to analyze threats, build detections,
+                    and protect your networks. Always ensure compliance with applicable laws and regulations.
+                </p>
+            </div>
+        </main>
+
+        <footer>
+            <div class="made-with-love">
+                Made with <span class="heart">❤</span> for the cybersecurity community
+            </div>
+            <p>Veriscope v1.0.0 | MIT License | For ethical & defensive security operations only</p>
+        </footer>
+    </div>
+</body>
+</html>

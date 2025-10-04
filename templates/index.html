@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veriscope - Malware Analysis Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <img src="{{ url_for('static', filename='img/veriscope.png') }}" alt="Veriscope Logo" class="logo-img">
+                <div class="logo-text">
+                    <pre class="ascii-logo">╦  ╦┌─┐┬─┐┬┌─┐┌─┐┌─┐┌─┐┌─┐
+╚╗╔╝├┤ ├┬┘│└─┐│  │ │├─┘├┤
+ ╚╝ └─┘┴└─┴└─┘└─┘└─┘┴  └─┘</pre>
+                </div>
+            </div>
+            <p>Deobfuscate Malware <span class="arrow-icon">▶</span> Extract IOCs <span class="arrow-icon">▶</span> Generate YARA/Sigma Detection Rules</p>
+            <nav>
+                <a href="/"><span class="nav-icon nav-icon-large">◈</span> Analyze</a>
+                <a href="/techniques"><span class="nav-icon nav-icon-large">◎</span> ATT&CK Techniques</a>
+                <a href="/about"><span class="nav-icon">ⓘ</span> About</a>
+            </nav>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <h2>Upload File for Analysis</h2>
+                <form id="upload-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="file">Select File:</label>
+                        <input type="file" id="file" name="file" required>
+                        <p class="hint">Supported: .txt, .log, .ps1, .bat, .sh, .js, .vbs, .exe, .dll, .bin (max 100MB)</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="rule_name">Rule Name:</label>
+                        <input type="text" id="rule_name" name="rule_name" value="Suspicious_Activity" placeholder="e.g., PhishingCampaign">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="author">Author:</label>
+                        <input type="text" id="author" name="author" value="Veriscope" placeholder="Your name or team">
+                    </div>
+
+                    <button type="submit" class="btn-primary">🚀 Analyze File</button>
+                </form>
+
+                <div id="loading" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Analyzing file... This may take a moment.</p>
+                </div>
+            </div>
+
+            <div id="results" class="results-section" style="display: none;">
+                <h2>Analysis Results</h2>
+
+                <div class="summary-cards">
+                    <div class="card">
+                        <h3>Strings</h3>
+                        <p class="stat" id="stat-strings">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Decoded</h3>
+                        <p class="stat" id="stat-decoded">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>IOCs</h3>
+                        <p class="stat" id="stat-iocs">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>ATT&CK Techniques</h3>
+                        <p class="stat" id="stat-techniques">0</p>
+                    </div>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="showTab('deobfuscation')">◈ Deobfuscation</button>
+                    <button class="tab-btn" onclick="showTab('iocs')">◉ IOCs</button>
+                    <button class="tab-btn" onclick="showTab('attack')">◎ ATT&CK</button>
+                    <button class="tab-btn" onclick="showTab('yara')">◆ YARA</button>
+                    <button class="tab-btn" onclick="showTab('sigma')">◇ Sigma</button>
+                    <button class="tab-btn" onclick="showTab('report')">◐ Report</button>
+                </div>
+
+                <div id="deobfuscation-tab" class="tab-content active">
+                    <h3>◈ Deobfuscation Results</h3>
+                    <div id="deobfuscation-content"></div>
+                </div>
+
+                <div id="iocs-tab" class="tab-content">
+                    <h3>◉ Indicators of Compromise</h3>
+                    <div id="iocs-content"></div>
+                </div>
+
+                <div id="attack-tab" class="tab-content">
+                    <h3>◎ MITRE ATT&CK Techniques</h3>
+                    <div id="attack-content"></div>
+                </div>
+
+                <div id="yara-tab" class="tab-content">
+                    <h3>◆ YARA Detection Rules</h3>
+                    <div id="yara-content"></div>
+                </div>
+
+                <div id="sigma-tab" class="tab-content">
+                    <h3>◇ Sigma Detection Rules</h3>
+                    <div id="sigma-content"></div>
+                </div>
+
+                <div id="report-tab" class="tab-content">
+                    <h3>◐ Markdown Report</h3>
+                    <div id="report-content"></div>
+                    <button onclick="downloadRule('report.md', document.getElementById('report-content').textContent)" class="btn-secondary">Download Report</button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div class="made-with-love">
+                Made with <span class="heart">❤</span> for the cybersecurity community
+            </div>
+            <p>Veriscope v1.0.0 | MIT License | For ethical & defensive security operations only</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

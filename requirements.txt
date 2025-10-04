@@ -1,0 +1,11 @@
+# Veriscope Dependencies
+# Keeping minimal as per whitepaper specifications
+
+# Phase 1: Core + CLI (no additional dependencies - uses stdlib)
+
+# Phase 2: API Layer
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# Phase 3: Web GUI
+flask>=3.0.0

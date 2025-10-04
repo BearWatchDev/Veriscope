@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATT&CK Techniques - Veriscope</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <img src="{{ url_for('static', filename='img/veriscope.png') }}" alt="Veriscope Logo" class="logo-img">
+                <div class="logo-text">
+                    <pre class="ascii-logo">╦  ╦┌─┐┬─┐┬┌─┐┌─┐┌─┐┌─┐┌─┐
+╚╗╔╝├┤ ├┬┘│└─┐│  │ │├─┘├┤
+ ╚╝ └─┘┴└─┴└─┘└─┘└─┘┴  └─┘</pre>
+                </div>
+            </div>
+            <p>Deobfuscate Malware <span class="arrow-icon">▶</span> Extract IOCs <span class="arrow-icon">▶</span> Generate YARA/Sigma Detection Rules</p>
+            <nav>
+                <a href="/"><span class="nav-icon nav-icon-large">◈</span> Analyze</a>
+                <a href="/techniques"><span class="nav-icon nav-icon-large">◎</span> ATT&CK Techniques</a>
+                <a href="/about"><span class="nav-icon">ⓘ</span> About</a>
+            </nav>
+        </header>
+
+        <main>
+            <h2>MITRE ATT&CK Techniques Reference</h2>
+            <p style="margin: 20px 0;">
+                Veriscope maps indicators to the following MITRE ATT&CK techniques using keyword-based heuristics.
+            </p>
+
+            <table class="technique-table">
+                <thead>
+                    <tr>
+                        <th>Technique ID</th>
+                        <th>Name</th>
+                        <th>Tactic</th>
+                        <th>Example Keywords</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tech in techniques %}
+                    <tr>
+                        <td>
+                            <a href="https://attack.mitre.org/techniques/{{ tech.id.replace('.', '/') }}" target="_blank">
+                                {{ tech.id }}
+                            </a>
+                        </td>
+                        <td>{{ tech.name }}</td>
+                        <td>{{ tech.tactic }}</td>
+                        <td><small>{{ tech.keywords }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <p style="margin-top: 30px; color: #666; font-size: 0.9em;">
+                <strong>Note:</strong> This is a subset of MITRE ATT&CK techniques commonly found in malware analysis.
+                Mappings are heuristic-based and require human validation.
+            </p>
+        </main>
+
+        <footer>
+            <div class="made-with-love">
+                Made with <span class="heart">❤</span> for the cybersecurity community
+            </div>
+            <p>Veriscope v1.0.0 | MIT License | For ethical & defensive security operations only</p>
+        </footer>
+    </div>
+</body>
+</html>

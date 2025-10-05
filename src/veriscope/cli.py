@@ -91,7 +91,7 @@ def main():
     parser.add_argument(
         '-v', '--version',
         action='version',
-        version='Veriscope v1.0.0'
+        version='Veriscope v1.1.0'
     )
 
     # Parse arguments

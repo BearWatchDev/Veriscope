@@ -1,0 +1,1 @@
+- do not mention Claude code anywhere in the project, codebase, commit messages or documentation.

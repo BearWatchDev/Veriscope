@@ -123,39 +123,57 @@ function displayDeobfuscation(stats, results) {
             html += '<div class="deobf-sample">';
 
             // Checkbox and header
-            html += '<div class="deobf-sample-header">';
-            html += '<label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">';
-            html += '<input type="checkbox" class="deobf-checkbox" data-index="' + i + '" onchange="toggleDeobfSelection(this, ' + i + ')">';
+            html += '<div class="deobf-sample-header" style="cursor: pointer;" onclick="toggleDeobfDetails(' + i + ')">';
+            html += '<div style="display: flex; align-items: center; gap: 10px;">';
+            html += '<input type="checkbox" class="deobf-checkbox" data-index="' + i + '" onchange="event.stopPropagation(); toggleDeobfSelection(this, ' + i + ')" onclick="event.stopPropagation();">';
             html += '<strong>Sample ' + (i + 1) + '</strong>';
-            html += '</label>';
-            html += '<span>Layers: ' + result.layers + '</span>';
+            html += '<span style="color: var(--accent-cyan);">(' + result.layers + ' layers)</span>';
+            if (result.suspicious_patterns && result.suspicious_patterns.length > 0) {
+                html += '<span style="color: var(--accent-warning);">⚠ Suspicious</span>';
+            }
             html += '</div>';
+            html += '<span class="expand-icon" id="expand-icon-' + i + '">▼ Show Details</span>';
+            html += '</div>';
+
+            // Final result (always visible)
+            if (result.decoded && result.decoded.length > 0) {
+                const finalDecoded = result.decoded[result.decoded.length - 1];
+                const finalDisplay = finalDecoded.length > 200 ? finalDecoded.substring(0, 200) + '...' : finalDecoded;
+                html += '<div class="final-result">';
+                html += '<div class="layer-label">✓ Final Decoded Result:</div>';
+                html += '<code>' + escapeHtml(finalDisplay) + '</code>';
+                html += '</div>';
+            }
+
+            // Detailed layers (collapsed by default)
+            html += '<div class="deobf-details" id="deobf-details-' + i + '" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">';
 
             if (result.suspicious_patterns && result.suspicious_patterns.length > 0) {
                 html += '<div class="suspicious-warning">';
-                html += '⚠ <strong>Suspicious:</strong> ' + result.suspicious_patterns.join(', ');
+                html += '⚠ <strong>Suspicious Patterns:</strong> ' + result.suspicious_patterns.join(', ');
                 html += '</div>';
             }
 
             // Original
-            const origDisplay = result.original.length > 100 ? result.original.substring(0, 100) + '...' : result.original;
+            const origDisplay = result.original.length > 150 ? result.original.substring(0, 150) + '...' : result.original;
             html += '<div class="layer">';
-            html += '<div class="layer-label">Original:</div>';
+            html += '<div class="layer-label">Original (Encoded):</div>';
             html += '<code>' + escapeHtml(origDisplay) + '</code>';
             html += '</div>';
 
-            // Decoded layers
+            // All decoded layers
             if (result.decoded && result.decoded.length > 0) {
                 result.decoded.forEach((decoded, layerIdx) => {
-                    const decodedDisplay = decoded.length > 100 ? decoded.substring(0, 100) + '...' : decoded;
+                    const decodedDisplay = decoded.length > 150 ? decoded.substring(0, 150) + '...' : decoded;
                     html += '<div class="layer">';
-                    html += '<div class="layer-label">Layer ' + (layerIdx + 1) + ':</div>';
+                    html += '<div class="layer-label">Layer ' + (layerIdx + 1) + ' Decoded:</div>';
                     html += '<code>' + escapeHtml(decodedDisplay) + '</code>';
                     html += '</div>';
                 });
             }
 
-            html += '</div>';
+            html += '</div>'; // Close deobf-details
+            html += '</div>'; // Close deobf-sample
         });
 
         // Store full results for rule generation
@@ -165,6 +183,20 @@ function displayDeobfuscation(stats, results) {
     }
 
     container.innerHTML = html;
+}
+
+// Toggle deobfuscation details
+function toggleDeobfDetails(index) {
+    const details = document.getElementById('deobf-details-' + index);
+    const icon = document.getElementById('expand-icon-' + index);
+
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        icon.textContent = '▲ Hide Details';
+    } else {
+        details.style.display = 'none';
+        icon.textContent = '▼ Show Details';
+    }
 }
 
 // Toggle deobfuscation selection
@@ -552,3 +584,302 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ============================================================================
+// DETAIL MODAL FUNCTIONS
+// ============================================================================
+
+function showDetailModal(type) {
+    if (!currentResults) return;
+    
+    const modal = document.getElementById('detail-modal');
+    const title = document.getElementById('modal-title');
+    const body = document.getElementById('modal-body');
+    
+    let html = '';
+    
+    switch(type) {
+        case 'strings':
+            title.textContent = '📄 String Analysis Details';
+            html = generateStringsDetail();
+            break;
+        case 'decoded':
+            title.textContent = '🔓 Deobfuscation Trace';
+            html = generateDecodedDetail();
+            break;
+        case 'iocs':
+            title.textContent = '🎯 IOC Breakdown';
+            html = generateIOCsDetail();
+            break;
+        case 'techniques':
+            title.textContent = '⚔️ ATT&CK Techniques Detail';
+            html = generateTechniquesDetail();
+            break;
+    }
+    
+    body.innerHTML = html;
+    modal.style.display = 'block';
+}
+
+function closeModal(event) {
+    const modal = document.getElementById('detail-modal');
+    if (!event || event.target === modal || event.target.classList.contains('close')) {
+        modal.style.display = 'none';
+    }
+}
+
+function generateStringsDetail() {
+    let html = '<div class="detail-section">';
+    
+    // Stats
+    html += '<div class="detail-stats">';
+    html += `<p><strong>Total Unique Strings:</strong> ${currentResults.summary.strings}</p>`;
+    html += `<p><strong>File:</strong> ${currentResults.filename || 'N/A'}</p>`;
+    html += '</div>';
+    
+    // String categories breakdown
+    if (currentResults.deobfuscation_stats) {
+        html += '<h3>📊 String Analysis</h3>';
+        html += '<div class="stats-grid">';
+        html += `<div class="stat-item">
+            <span class="stat-label">Encoded Strings Detected:</span>
+            <span class="stat-value">${currentResults.deobfuscation_stats.successfully_decoded || 0}</span>
+        </div>`;
+        html += `<div class="stat-item">
+            <span class="stat-label">Max Decoding Depth:</span>
+            <span class="stat-value">${currentResults.deobfuscation_stats.max_depth || 0} layers</span>
+        </div>`;
+        html += `<div class="stat-item">
+            <span class="stat-label">Decoding Methods Used:</span>
+            <span class="stat-value">${currentResults.deobfuscation_stats.methods_used ? currentResults.deobfuscation_stats.methods_used.length : 0}</span>
+        </div>`;
+        html += '</div>';
+        
+        if (currentResults.deobfuscation_stats.methods_used && currentResults.deobfuscation_stats.methods_used.length > 0) {
+            html += '<h4>🔧 Deobfuscation Methods Applied:</h4>';
+            html += '<ul class="methods-list">';
+            currentResults.deobfuscation_stats.methods_used.forEach(method => {
+                html += `<li><code>${method}</code></li>`;
+            });
+            html += '</ul>';
+        }
+    }
+    
+    // Entropy info - only show if there are high entropy strings
+    if (currentResults.analysis && currentResults.analysis.high_entropy_strings && currentResults.analysis.high_entropy_strings.length > 0) {
+        html += '<h3>📈 Entropy Analysis</h3>';
+        html += `<p><strong>High-Entropy Strings:</strong> ${currentResults.analysis.high_entropy_strings.length}</p>`;
+        html += '<p class="hint">High entropy strings may indicate encryption, compression, or obfuscation</p>';
+    }
+
+    // Suspicious keywords - only show if keywords were found
+    if (currentResults.analysis && currentResults.analysis.suspicious_keywords && currentResults.analysis.suspicious_keywords.length > 0) {
+        html += '<h3>⚠️ Suspicious Keywords</h3>';
+        html += `<p><strong>Keywords Found:</strong> ${currentResults.analysis.suspicious_keywords.length}</p>`;
+        html += '<div class="keywords-list">';
+        currentResults.analysis.suspicious_keywords.forEach(kw => {
+            html += `<span class="keyword-badge">${escapeHtml(kw)}</span>`;
+        });
+        html += '</div>';
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function generateDecodedDetail() {
+    let html = '<div class="detail-section">';
+    
+    if (!currentResults.deobfuscation_results || currentResults.deobfuscation_results.length === 0) {
+        html += '<p class="no-data">No encoded strings were detected or decoded.</p>';
+        html += '</div>';
+        return html;
+    }
+    
+    html += `<p class="detail-summary">Successfully decoded <strong>${currentResults.deobfuscation_stats.successfully_decoded}</strong> encoded string(s) with max depth of <strong>${currentResults.deobfuscation_stats.max_depth}</strong> layers.</p>`;
+    
+    currentResults.deobfuscation_results.forEach((result, index) => {
+        html += `<div class="deobf-detail-item">`;
+        html += `<h3>🔐 Encoded String #${index + 1}</h3>`;
+        
+        // Show original
+        html += '<div class="detail-subsection">';
+        html += '<h4>Original (Encoded):</h4>';
+        html += `<pre class="encoded-preview">${escapeHtml(result.original.substring(0, 100))}${result.original.length > 100 ? '...' : ''}</pre>`;
+        html += '</div>';
+        
+        // Show trace
+        if (result.trace && result.trace.length > 0) {
+            html += '<div class="detail-subsection">';
+            html += '<h4>🔍 Deobfuscation Trace:</h4>';
+            html += '<div class="trace-timeline">';
+            
+            result.trace.forEach((step, i) => {
+                const [method, success, preview] = step;
+                const icon = success ? '✓' : '✗';
+                const statusClass = success ? 'success' : 'failed';
+                
+                html += `<div class="trace-step ${statusClass}">`;
+                html += `<span class="trace-icon">${icon}</span>`;
+                html += `<span class="trace-method">${method}</span>`;
+                html += `<div class="trace-preview">${escapeHtml(preview.substring(0, 80))}${preview.length > 80 ? '...' : ''}</div>`;
+                html += `</div>`;
+            });
+            
+            html += '</div>';
+            html += '</div>';
+        }
+        
+        // Show final plaintext
+        if (result.decoded && result.decoded.length > 0) {
+            html += '<div class="detail-subsection">';
+            html += '<h4>📋 Final Plaintext:</h4>';
+            html += `<pre class="plaintext-result">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
+            html += '</div>';
+        }
+        
+        // Show suspicious patterns
+        if (result.suspicious_patterns && result.suspicious_patterns.length > 0) {
+            html += '<div class="detail-subsection">';
+            html += '<h4>⚠️ Suspicious Patterns:</h4>';
+            html += '<ul class="suspicious-list">';
+            result.suspicious_patterns.forEach(pattern => {
+                html += `<li>${escapeHtml(pattern)}</li>`;
+            });
+            html += '</ul>';
+            html += '</div>';
+        }
+        
+        html += `</div>`;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function generateIOCsDetail() {
+    let html = '<div class="detail-section">';
+
+    const iocs = currentResults.iocs;
+    const totalIOCs = (iocs.urls?.length || 0) + (iocs.ips?.length || 0) +
+                     (iocs.domains?.length || 0) + (iocs.registry_keys?.length || 0) +
+                     (iocs.mutexes?.length || 0) + (iocs.file_paths?.length || 0) +
+                     (iocs.crypto_addresses?.length || 0);
+
+    if (totalIOCs === 0) {
+        html += '<div class="empty-state">';
+        html += '<div class="empty-state-icon">🔍</div>';
+        html += '<p>No Indicators of Compromise detected in this sample.</p>';
+        html += '</div>';
+        html += '</div>';
+        return html;
+    }
+
+    const iocCategories = [
+        { key: 'urls', icon: '🌐', label: 'URLs', color: '#e74c3c' },
+        { key: 'ips', icon: '📡', label: 'IP Addresses', color: '#3498db' },
+        { key: 'domains', icon: '🔗', label: 'Domains', color: '#9b59b6' },
+        { key: 'registry_keys', icon: '🔑', label: 'Registry Keys', color: '#f39c12' },
+        { key: 'mutexes', icon: '🔒', label: 'Mutexes', color: '#1abc9c' },
+        { key: 'file_paths', icon: '📁', label: 'File Paths', color: '#34495e' },
+        { key: 'crypto_addresses', icon: '💰', label: 'Crypto Addresses', color: '#e67e22' }
+    ];
+
+    const populatedCount = iocCategories.filter(cat => (iocs[cat.key]?.length || 0) > 0).length;
+    html += `<p class="detail-summary">Detected <strong>${totalIOCs}</strong> Indicators of Compromise across <strong>${populatedCount}</strong> categor${populatedCount === 1 ? 'y' : 'ies'}.</p>`;
+
+    iocCategories.forEach(cat => {
+        const items = iocs[cat.key] || [];
+
+        // Only show categories with items
+        if (items.length > 0) {
+            html += `<div class="ioc-category-detail">`;
+            html += `<h3 style="color: ${cat.color}">${cat.icon} ${cat.label} <span class="count-badge">${items.length}</span></h3>`;
+            html += '<ul class="ioc-list">';
+            items.forEach(item => {
+                html += `<li><code>${escapeHtml(item)}</code></li>`;
+            });
+            html += '</ul>';
+            html += '</div>';
+        }
+    });
+
+    html += '</div>';
+    return html;
+}
+
+function generateTechniquesDetail() {
+    let html = '<div class="detail-section">';
+    
+    const techniques = currentResults.attack_mapping?.techniques || [];
+    
+    if (techniques.length === 0) {
+        html += '<p class="no-data">No ATT&CK techniques were mapped.</p>';
+        html += '</div>';
+        return html;
+    }
+    
+    html += `<p class="detail-summary">Identified <strong>${techniques.length}</strong> potential MITRE ATT&CK technique(s).</p>`;
+    
+    // Group by tactic
+    const tacticGroups = {};
+    techniques.forEach(tech => {
+        const tactic = tech.tactic || 'Unknown';
+        if (!tacticGroups[tactic]) {
+            tacticGroups[tactic] = [];
+        }
+        tacticGroups[tactic].push(tech);
+    });
+    
+    Object.entries(tacticGroups).forEach(([tactic, techs]) => {
+        html += `<div class="tactic-group">`;
+        html += `<h3>📍 ${tactic} <span class="count-badge">${techs.length}</span></h3>`;
+
+        // Sort techniques by confidence/match_count (high to low)
+        const sortedTechs = techs.sort((a, b) => {
+            const countA = a.match_count || 0;
+            const countB = b.match_count || 0;
+            return countB - countA; // Descending order
+        });
+
+        sortedTechs.forEach(tech => {
+            // Map confidence based on match_count
+            let confidenceLevel = 'low';
+            const matchCount = tech.match_count || 0;
+            if (matchCount >= 5) confidenceLevel = 'high';
+            else if (matchCount >= 2) confidenceLevel = 'medium';
+
+            html += `<div class="technique-detail-card">`;
+            html += `<div class="technique-header">`;
+            html += `<div>`;
+            html += `<div class="technique-name">${escapeHtml(tech.name || 'Unknown')}</div>`;
+            html += `<div class="technique-id">${tech.id || 'N/A'}</div>`;
+            html += `</div>`;
+            html += `<span class="confidence-badge ${confidenceLevel}">${confidenceLevel}</span>`;
+            html += `</div>`;
+
+            html += `<div class="technique-description">`;
+            html += `Match count: <strong>${matchCount}</strong>`;
+            html += `</div>`;
+
+            html += `<div class="technique-footer">`;
+            html += `<span class="technique-tactic">Tactic: ${escapeHtml(tech.tactic || 'Unknown')}</span>`;
+            html += `<a href="https://attack.mitre.org/techniques/${tech.id}/" target="_blank" rel="noopener" class="technique-link">View in ATT&CK Framework ↗</a>`;
+            html += `</div>`;
+
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeModal();
+    }
+});

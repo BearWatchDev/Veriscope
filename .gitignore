@@ -71,3 +71,23 @@ obfuscated_results/
 veriscope_output/
 test_gui.sh
 setup_git.sh
+
+# Test suites and internal analysis (DO NOT PUBLISH)
+Test Strings/
+test_hardset.py
+test_suite.py
+*hardset*.txt
+*hardset*.md
+*hardset*.zip
+test_analysis.md
+test_report.txt
+veriscope_deobfuscation_brief.txt
+DEOBFUSCATION_V1.1_SUMMARY.md
+HARDSET_30_RESULTS.md
+HARDSET_NO_AES_GAP_ANALYSIS.md
+
+# Keep for development (internal reference only)
+# ENGINE_IMPROVEMENTS.md - contains detailed technical analysis
+
+# Backup files
+src/veriscope/core/deobfuscator_old.py

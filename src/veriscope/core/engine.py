@@ -14,7 +14,7 @@ from .analyzer import EntropyAnalyzer, AnalysisResult
 from .attack_mapper import AttackMapper, AttackMapping
 from .yara_generator import YaraGenerator
 from .sigma_generator import SigmaGenerator
-from .deobfuscator import Deobfuscator, DeobfuscationResult
+from .deobfuscator import Deobfuscator, DeobfuscationResult, DeobfuscationConfig
 
 
 @dataclass
@@ -69,7 +69,9 @@ class VeriscopeResult:
                         'decoded': r.deobfuscated,
                         'layers': r.layers_decoded,
                         'methods': r.methods_used,
-                        'suspicious_patterns': r.suspicious_patterns
+                        'suspicious_patterns': r.suspicious_patterns,
+                        'trace': r.trace,
+                        'timed_out': r.timed_out
                     }
                     for r in self.deobfuscation_results[:20]  # Limit for JSON size
                 ]
@@ -102,7 +104,8 @@ class VeriscopeEngine:
                  min_string_length: int = 6,
                  entropy_threshold: float = 4.5,
                  author: str = "Veriscope",
-                 auto_deobfuscate: bool = True):
+                 auto_deobfuscate: bool = True,
+                 deobfuscation_config: DeobfuscationConfig = None):
         """
         Initialize Veriscope engine with all modules
 
@@ -111,6 +114,7 @@ class VeriscopeEngine:
             entropy_threshold: Entropy threshold for flagging
             author: Author name for generated rules
             auto_deobfuscate: Automatically attempt to deobfuscate encoded strings
+            deobfuscation_config: Configuration for deobfuscation (optional)
         """
         # Initialize all analysis modules
         self.extractor = StringExtractor(min_length=min_string_length)
@@ -119,7 +123,11 @@ class VeriscopeEngine:
         self.attack_mapper = AttackMapper()
         self.yara_generator = YaraGenerator(author=author)
         self.sigma_generator = SigmaGenerator(author=author)
-        self.deobfuscator = Deobfuscator()
+
+        # Initialize deobfuscator with config
+        if deobfuscation_config is None:
+            deobfuscation_config = DeobfuscationConfig()
+        self.deobfuscator = Deobfuscator(config=deobfuscation_config)
         self.auto_deobfuscate = auto_deobfuscate
 
     def analyze_file(self, file_path: str, rule_name: str = "Suspicious_Activity") -> VeriscopeResult:
@@ -147,14 +155,29 @@ class VeriscopeEngine:
         print(f"    Found {len(result.strings)} unique strings")
 
         # Step 1.5: Deobfuscate encoded strings (if enabled)
-        # This step automatically decodes Base64, hex, URL encoding, PowerShell encoding, etc.
-        # Supports multi-layer decoding (e.g., Base64 of Base64) up to 5 levels deep
+        # This step automatically decodes Base64, hex, URL encoding, PowerShell encoding, GZIP, XOR, etc.
+        # Supports multi-layer decoding (e.g., XOR -> Base64 -> GZIP) up to configurable max depth
         # Decoded strings are added to the analysis pool for enhanced IOC/ATT&CK detection
         all_strings = result.strings.copy()
         if self.auto_deobfuscate:
             print(f"[*] Attempting to deobfuscate encoded strings...")
+
+            result.deobfuscation_results = []
+
+            # Also try deobfuscating the entire raw file content (handles whole-file obfuscation)
+            try:
+                with open(file_path, 'r', errors='ignore') as f:
+                    raw_content = f.read()
+                    # Only try if file isn't too large and looks potentially encoded
+                    if len(raw_content) > 50 and len(raw_content) < self.deobfuscator.config.max_input_bytes:
+                        raw_result = self.deobfuscator.deobfuscate_string(raw_content)
+                        if raw_result.layers_decoded > 0:
+                            result.deobfuscation_results.append(raw_result)
+            except:
+                pass
+
             # Batch deobfuscate all extracted strings
-            result.deobfuscation_results = self.deobfuscator.deobfuscate_batch(result.strings)
+            result.deobfuscation_results.extend(self.deobfuscator.deobfuscate_batch(result.strings))
             result.deobfuscation_stats = self.deobfuscator.get_deobfuscation_stats(result.deobfuscation_results)
 
             # Add all decoded layers to the analysis pool

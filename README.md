@@ -4,7 +4,7 @@
 
 Veriscope transforms raw malware artifacts into actionable detection intelligence through automated deobfuscation, IOC extraction, and detection rule generation.
 
-![Version](https://img.shields.io/badge/version-1.0.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
 
 ---
 
@@ -16,7 +16,14 @@ Veriscope is a specialized tool for security analysts, threat hunters, and SOC t
 
 ### What It Does
 
-- **Multi-Layer Deobfuscation**: Automatically decodes Base64, hexadecimal, URL encoding, PowerShell obfuscation, and nested encoding chains
+- **Advanced Multi-Layer Deobfuscation**: Automatically unwraps complex obfuscation chains:
+  - **10+ encoding methods**: Base64, Hex, GZIP, zlib, bzip2, UTF-16LE, XOR (single/multi-byte), ROT13, URL encoding
+  - **Up to 6 layers deep** with SHA1 cycle detection and timeout protection
+  - **Binary data preservation**: Latin-1 encoding for XOR and compressed data
+  - **Intelligent stopping**: Marker-based plaintext detection (prevents over-decoding)
+  - **Real-world patterns**: Windows/PowerShell malware, nested encodings, compressed payloads
+  - **Compression support**: GZIP, zlib (0x78), bzip2 (BZh) with magic byte detection
+  - **Multi-byte XOR**: 8 common keys (2/3/4-byte repeating patterns)
 - **IOC Extraction**: Identifies URLs, IPv4 addresses, domains, email addresses, registry keys, Windows mutexes, file paths, and cryptocurrency addresses
 - **Entropy & Keyword Analysis**: Calculates Shannon entropy and detects suspicious API calls and malicious patterns
 - **MITRE ATT&CK Mapping**: Maps detected behaviors to ATT&CK techniques with confidence scoring
@@ -98,10 +105,17 @@ python3 src/veriscope/cli.py malware.bin --name Ransomware --out ./analysis_resu
 
 The Web GUI provides a modern, dark-themed interface with:
 
-### 1. Deobfuscation Results
-- View decoded layers with entropy scores
-- Identify suspicious patterns automatically
-- Select specific decoded strings for custom rule generation
+### 1. Advanced Deobfuscation Results
+- **Multi-layer unwrapping**: Automatically decodes up to 10 layers of nested obfuscation
+- **Detailed audit trail**: Shows exact deobfuscation chain (e.g., XOR → Base64 → GZIP → ROT13)
+- **Method previews**: Displays intermediate decoded content for each layer
+- **Intelligent detection**:
+  - Plaintext detection stops when high-quality plaintext found
+  - SHA1 hash-based cycle prevention
+  - English language scoring validates successful decoding
+  - Configurable timeout (2s default) and size limits (1MB)
+- **Suspicious pattern identification**: Flags PowerShell obfuscation, dangerous commands, URLs, IPs
+- **Select specific decoded strings** for custom rule generation
 
 ### 2. IOC Detection
 - Categorized indicators: URLs, IPs, domains, registry keys, mutexes, file paths, crypto addresses
@@ -128,7 +142,11 @@ The Web GUI provides a modern, dark-themed interface with:
 
 ```
 Core Engine (Python stdlib)
-├── deobfuscator.py      → Multi-layer decoding engine
+├── deobfuscator.py      → Advanced multi-layer decoding engine
+│                          • GZIP, XOR, Base64, Hex, ROT13, URL encoding
+│                          • SHA1 cycle detection, timeout enforcement
+│                          • English scoring, plaintext detection
+│                          • Configurable depth (default: 6 layers)
 ├── ioc_detector.py      → Pattern-based IOC extraction
 ├── attack_mapper.py     → Heuristic ATT&CK mapping
 ├── yara_generator.py    → YARA rule template creation
@@ -145,6 +163,61 @@ Frontend
 ├── static/js/app.js     → Dynamic rule generation logic
 └── templates/           → HTML templates
 ```
+
+---
+
+## Deobfuscation Engine
+
+### Supported Encoding Methods
+
+| Method | Description | Key Features |
+|--------|-------------|--------------|
+| **Base64** | Standard and PowerShell (UTF-16LE) | Automatic UTF-8/UTF-16LE detection |
+| **GZIP** | Compressed data streams | Magic byte detection (0x1f 0x8b) |
+| **Hexadecimal** | Hex-encoded strings | Binary data preservation via latin-1 |
+| **XOR** | Single-byte XOR cipher | 14 common keys + optional brute-force |
+| **UTF-16LE** | Windows/PowerShell encoding | Null-byte pattern detection |
+| **ROT13** | Caesar cipher rotation | English language scoring |
+| **URL Encoding** | Percent-encoded strings | RFC 3986 compliant |
+
+### Configuration
+
+Customize deobfuscation behavior programmatically:
+
+```python
+from veriscope.core.engine import VeriscopeEngine
+from veriscope.core.deobfuscator import DeobfuscationConfig
+
+# Configure deobfuscation settings
+config = DeobfuscationConfig(
+    enabled=True,
+    max_depth=6,                    # Maximum layers to unwrap
+    per_string_timeout_secs=2.0,    # Timeout per string
+    max_input_bytes=1_048_576,      # 1 MiB size limit
+    xor_enabled=True,
+    xor_common_keys=[0x5A, 0x20, 0xFF, 0xAA],
+    xor_aggressive_bruteforce=False # Conservative XOR detection
+)
+
+# Initialize engine with custom config
+engine = VeriscopeEngine(deobfuscation_config=config)
+result = engine.analyze_file("sample.txt")
+
+# Access deobfuscation trace
+for deob_result in result.deobfuscation_results:
+    print(f"Layers: {deob_result.layers_decoded}")
+    print(f"Methods: {deob_result.methods_used}")
+    for method, success, preview in deob_result.trace:
+        print(f"  {'✓' if success else '✗'} {method}: {preview[:60]}")
+```
+
+### Safety Features
+
+- **Cycle Detection**: SHA1 hashing prevents infinite loops
+- **Timeout Protection**: 2-second default per string
+- **Size Limits**: 1 MiB input maximum
+- **Intelligent Stopping**: Keyword-based plaintext detection
+- **Binary Preservation**: Latin-1 encoding maintains all bytes through decode chains
 
 ---
 
@@ -257,11 +330,33 @@ chmod +x cleanup_veriscope.sh
 
 ## Project Information
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **License**: MIT
 **Platform**: Linux-first, cross-platform compatible (Windows, macOS)
 **Dependencies**: Python 3.8+, Flask, PyYAML
 **Contact**: BearWatchDev@pm.me
+
+### Changelog
+
+**v1.1.0** (2025-10-05)
+- ✨ **NEW**: Compression support (GZIP, zlib, bzip2) with magic byte detection
+- ✨ **NEW**: Multi-byte XOR decoding (2/3/4-byte repeating keys, 8 common patterns)
+- ✨ **NEW**: UTF-16LE support for Windows/PowerShell malware
+- ✨ **NEW**: Marker-based plaintext detection (prevents over-decoding)
+- ✨ **NEW**: DeobfuscationConfig class for engine configuration
+- ✨ **NEW**: Latin-1 encoding fallback for binary data preservation
+- 🔧 **IMPROVED**: Base64 noise filtering and conditional padding normalization
+- 🔧 **IMPROVED**: ROT13 keyword expansion (added: token, shell, alert, process)
+- 🔧 **IMPROVED**: Quality tracking with degradation detection
+- 🔧 **IMPROVED**: Method execution ordering (Hex → UTF-16LE → ROT13 → Base64 → XOR)
+- 🔧 **IMPROVED**: Detailed audit trail with method traces
+
+**v1.0.0** (2025-10-04)
+- 🎉 Initial release
+- Core deobfuscation: Base64, Hex, URL encoding, PowerShell
+- IOC extraction and MITRE ATT&CK mapping
+- YARA and Sigma rule generation
+- Web GUI and CLI interfaces
 
 ### Repository Structure
 ```
@@ -329,4 +424,4 @@ MIT License - See LICENSE file for details
 
 **Made with ❤ for the cybersecurity community**
 
-*Veriscope v1.0.0 | For ethical & defensive security operations only*
+*Veriscope v1.1.0 | Advanced multi-layer deobfuscation for defensive security operations*

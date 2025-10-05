@@ -101,7 +101,9 @@ def analyze():
                     'decoded': r.deobfuscated,
                     'layers': r.layers_decoded,
                     'methods': r.methods_used,
-                    'suspicious_patterns': r.suspicious_patterns
+                    'suspicious_patterns': r.suspicious_patterns,
+                    'trace': r.trace,
+                    'timed_out': r.timed_out
                 }
                 for r in result.deobfuscation_results[:20]
             ],

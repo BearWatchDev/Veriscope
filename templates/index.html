@@ -58,21 +58,25 @@
                 <h2>Analysis Results</h2>
 
                 <div class="summary-cards">
-                    <div class="card">
+                    <div class="card clickable-card" onclick="showDetailModal('strings')" title="Click for detailed string analysis">
                         <h3>Strings</h3>
                         <p class="stat" id="stat-strings">0</p>
+                        <span class="card-hint">Click for details ▸</span>
                     </div>
-                    <div class="card">
+                    <div class="card clickable-card" onclick="showDetailModal('decoded')" title="Click for deobfuscation trace">
                         <h3>Decoded</h3>
                         <p class="stat" id="stat-decoded">0</p>
+                        <span class="card-hint">Click for details ▸</span>
                     </div>
-                    <div class="card">
+                    <div class="card clickable-card" onclick="showDetailModal('iocs')" title="Click for IOC breakdown">
                         <h3>IOCs</h3>
                         <p class="stat" id="stat-iocs">0</p>
+                        <span class="card-hint">Click for details ▸</span>
                     </div>
-                    <div class="card">
+                    <div class="card clickable-card" onclick="showDetailModal('techniques')" title="Click for ATT&CK mapping">
                         <h3>ATT&CK Techniques</h3>
                         <p class="stat" id="stat-techniques">0</p>
+                        <span class="card-hint">Click for details ▸</span>
                     </div>
                 </div>
 
@@ -122,8 +126,17 @@
             <div class="made-with-love">
                 Made with <span class="heart">❤</span> for the cybersecurity community
             </div>
-            <p>Veriscope v1.0.0 | MIT License | For ethical & defensive security operations only</p>
+            <p>Veriscope v1.1.0 | MIT License | For ethical & defensive security operations only</p>
         </footer>
+    </div>
+
+    <!-- Detail Modal -->
+    <div id="detail-modal" class="modal" onclick="closeModal(event)" style="display: none;">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modal-title"></h2>
+            <div id="modal-body"></div>
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

@@ -212,6 +212,26 @@ class SigmaGenerator:
                 selection_items['CommandLine|contains'] = \
                     selection_items.get('CommandLine|contains', []) + keyword_patterns
 
+        # Add high-entropy/encoded strings (potential obfuscation)
+        if analysis and analysis.get('high_entropy_strings'):
+            encoded_patterns = []
+            for item in analysis['high_entropy_strings'][:5]:
+                # Extract string value from dict/tuple/string
+                if isinstance(item, dict):
+                    string_val = item.get('string', '')
+                elif isinstance(item, tuple):
+                    string_val = item[0]
+                else:
+                    string_val = str(item)
+
+                # Only include strings that look like encoding (Base64, hex, etc.)
+                if len(string_val) >= 40:  # Minimum length for meaningful encoded strings
+                    encoded_patterns.append(f'*{string_val}*')
+
+            if encoded_patterns:
+                selection_items['CommandLine|contains'] = \
+                    selection_items.get('CommandLine|contains', []) + encoded_patterns
+
         # If we have multiple selection criteria, create multiple selection blocks
         if len(selection_items) > 1:
             # Split into multiple selections for OR logic

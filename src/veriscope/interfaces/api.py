@@ -23,7 +23,7 @@ from veriscope.utils.report_generator import ReportGenerator
 app = FastAPI(
     title="Veriscope API",
     description="Unified IOC + ATT&CK + YARA + Sigma Detection Engine",
-    version="1.1.0",
+    version="1.2.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -48,7 +48,7 @@ async def root():
     """
     return {
         "service": "Veriscope API",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "status": "operational",
         "endpoints": {
             "analyze": "/analyze",
@@ -67,7 +67,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "veriscope-api",
-        "version": "1.1.0"
+        "version": "1.2.0"
     }
 
 

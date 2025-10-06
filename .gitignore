@@ -61,6 +61,8 @@ Thumbs.db
 # Development artifacts (should not be in public repo)
 .claude/
 *claude*
+*CLAUDE*
+CLAUDE.md
 *prompt*
 *whitepaper*
 *guide*
@@ -71,6 +73,7 @@ obfuscated_results/
 veriscope_output/
 test_gui.sh
 setup_git.sh
+test_easy50.py
 
 # Test suites and internal analysis (DO NOT PUBLISH)
 Test Strings/

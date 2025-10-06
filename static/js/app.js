@@ -20,10 +20,134 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     const formData = new FormData(e.target);
     const loadingDiv = document.getElementById('loading');
     const resultsDiv = document.getElementById('results');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const progressPreview = document.getElementById('progress-preview');
 
-    // Show loading, hide results
+    // Generate session ID for progress tracking
+    const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    formData.append('session_id', sessionId);
+
+    // Hide upload section immediately
+    const uploadSection = document.getElementById('upload-section');
+    if (uploadSection) {
+        uploadSection.style.display = 'none';
+    }
+
+    // Show loading and progress, hide results
     loadingDiv.style.display = 'block';
     resultsDiv.style.display = 'none';
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = 'Starting analysis...';
+        progressPreview.textContent = '';
+    }
+
+    // Start listening for progress updates
+    const eventSource = new EventSource(`/progress/${sessionId}`);
+
+    let progressCompleted = false;
+    let methodChain = []; // Track the chain of successful methods
+    let updateQueue = []; // Queue for delayed updates
+    let isProcessingQueue = false;
+
+    // Function to process queued updates with delay
+    const processUpdateQueue = () => {
+        if (isProcessingQueue || updateQueue.length === 0) {
+            return;
+        }
+
+        isProcessingQueue = true;
+        const update = updateQueue.shift();
+
+        // Apply the update
+        if (update.type === 'success') {
+            methodChain.push(update.methodName);
+            progressPreview.textContent = methodChain.join(' → ');
+        } else if (update.type === 'trying') {
+            const chainText = methodChain.length > 0 ? methodChain.join(' → ') + ' → ' : '';
+            progressPreview.textContent = chainText + '⟳ ' + update.methodName + '...';
+        } else if (update.type === 'complete') {
+            progressPreview.textContent = methodChain.join(' → ');
+        }
+
+        // Update progress bar and text
+        if (update.progress !== undefined) {
+            progressBar.style.transition = 'width 0.5s ease-out';
+            progressBar.style.width = `${Math.min(update.progress, 100)}%`;
+        }
+        if (update.progressText) {
+            progressText.textContent = update.progressText;
+        }
+
+        // Process next update after delay
+        setTimeout(() => {
+            isProcessingQueue = false;
+            processUpdateQueue();
+        }, 400); // 400ms delay between updates
+    };
+
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.status === 'complete') {
+            eventSource.close();
+            if (progressContainer) {
+                // Animate to 100% smoothly
+                progressBar.style.transition = 'width 1s ease-out';
+                progressBar.style.width = '100%';
+                progressText.textContent = 'Analysis complete!';
+                progressCompleted = true;
+            }
+            return;
+        }
+
+        if (data.status === 'alive') {
+            // Heartbeat - do nothing
+            return;
+        }
+
+        // Queue progress updates for delayed display
+        if (data.layer !== undefined && data.total_layers && progressContainer) {
+            // data.layer can be decimal (e.g., 2.3 = layer 2, 30% through methods)
+            const progress = (data.layer / data.total_layers) * 100;
+            const currentLayer = Math.ceil(data.layer); // Round up for display
+            const progressTextValue = `${data.method} (Layer ${currentLayer}/${data.total_layers})`;
+
+            // Handle different update types
+            if (data.method && data.method.includes('successful')) {
+                // Successful decode - queue with progress bar update
+                const methodName = data.method.replace('✓', '').replace('successful', '').trim();
+                updateQueue.push({
+                    type: 'success',
+                    methodName: methodName,
+                    progress: progress,
+                    progressText: progressTextValue
+                });
+                processUpdateQueue();
+            } else if (data.method && data.method.startsWith('Trying')) {
+                // Show trying immediately (no queue, no progress bar movement)
+                const attempting = data.method.replace('Trying', '').trim();
+                const chainText = methodChain.length > 0 ? methodChain.join(' → ') + ' → ' : '';
+                progressPreview.textContent = chainText + '⟳ ' + attempting + '...';
+                progressText.textContent = progressTextValue;
+            } else if (data.method === 'Complete') {
+                // Final completion
+                updateQueue.push({
+                    type: 'complete',
+                    progress: 100,
+                    progressText: 'Analysis complete!'
+                });
+                processUpdateQueue();
+            }
+        }
+    };
+
+    eventSource.onerror = () => {
+        eventSource.close();
+    };
 
     try {
         const response = await fetch('/analyze', {
@@ -77,16 +201,58 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         // Populate Report tab
         displayReport(data.markdown_report);
 
-        // Show results
-        loadingDiv.style.display = 'none';
-        resultsDiv.style.display = 'block';
+        // Wait for progress bar to complete before showing results
+        const showResults = () => {
+            loadingDiv.style.display = 'none';
+            if (progressContainer) {
+                // Fade out the progress bar after a delay
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                }, 1500);
+            }
+            resultsDiv.style.display = 'block';
+        };
+
+        // If progress hasn't completed yet, wait for it
+        if (!progressCompleted && progressContainer) {
+            // Wait up to 3 seconds for progress to complete
+            let waited = 0;
+            const waitInterval = setInterval(() => {
+                waited += 100;
+                if (progressCompleted || waited >= 3000) {
+                    clearInterval(waitInterval);
+                    // Give user 2 seconds to see 100% completion
+                    setTimeout(showResults, 2000);
+                }
+            }, 100);
+        } else {
+            // Progress already complete or no progress bar, show results after delay
+            setTimeout(showResults, 2000);
+        }
+
+        // Hide upload form and show "New Analysis" button
+        const uploadSection = document.getElementById('upload-section');
+        const newAnalysisBtn = document.getElementById('new-analysis-btn');
+        if (uploadSection && newAnalysisBtn) {
+            uploadSection.style.display = 'none';
+            newAnalysisBtn.style.display = 'block';
+        }
 
         // Scroll to results
         resultsDiv.scrollIntoView({ behavior: 'smooth' });
 
     } catch (error) {
+        eventSource.close();
         alert('Error: ' + error.message);
         loadingDiv.style.display = 'none';
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+        }
+        // Show upload section again on error
+        const uploadSection = document.getElementById('upload-section');
+        if (uploadSection) {
+            uploadSection.style.display = 'block';
+        }
     }
 });
 
@@ -649,17 +815,20 @@ function generateStringsDetail() {
             <span class="stat-label">Max Decoding Depth:</span>
             <span class="stat-value">${currentResults.deobfuscation_stats.max_depth || 0} layers</span>
         </div>`;
+        // methods_used is an object with method names as keys and counts as values
+        const methodsCount = currentResults.deobfuscation_stats.methods_used ?
+            Object.keys(currentResults.deobfuscation_stats.methods_used).length : 0;
         html += `<div class="stat-item">
             <span class="stat-label">Decoding Methods Used:</span>
-            <span class="stat-value">${currentResults.deobfuscation_stats.methods_used ? currentResults.deobfuscation_stats.methods_used.length : 0}</span>
+            <span class="stat-value">${methodsCount}</span>
         </div>`;
         html += '</div>';
-        
-        if (currentResults.deobfuscation_stats.methods_used && currentResults.deobfuscation_stats.methods_used.length > 0) {
+
+        if (currentResults.deobfuscation_stats.methods_used && methodsCount > 0) {
             html += '<h4>🔧 Deobfuscation Methods Applied:</h4>';
             html += '<ul class="methods-list">';
-            currentResults.deobfuscation_stats.methods_used.forEach(method => {
-                html += `<li><code>${method}</code></li>`;
+            Object.entries(currentResults.deobfuscation_stats.methods_used).forEach(([method, count]) => {
+                html += `<li><code>${escapeHtml(method)}</code> <span class="method-count">(${count}x)</span></li>`;
             });
             html += '</ul>';
         }
@@ -883,3 +1052,32 @@ document.addEventListener('keydown', (e) => {
         closeModal();
     }
 });
+
+// Handle "New Analysis" button click
+function resetForNewAnalysis() {
+    // Hide results and new analysis button
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('new-analysis-btn').style.display = 'none';
+
+    // Show upload section
+    document.getElementById('upload-section').style.display = 'block';
+
+    // Reset form
+    document.getElementById('upload-form').reset();
+
+    // Clear current results
+    currentResults = null;
+    selectedIOCs = {
+        urls: [],
+        ips: [],
+        domains: [],
+        registry_keys: [],
+        mutexes: [],
+        file_paths: [],
+        crypto_addresses: []
+    };
+    selectedDeobfuscated = [];
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}

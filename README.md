@@ -4,7 +4,7 @@
 
 Veriscope transforms raw malware artifacts into actionable detection intelligence through automated deobfuscation, IOC extraction, and detection rule generation.
 
-![Version](https://img.shields.io/badge/version-1.1.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
+![Version](https://img.shields.io/badge/version-1.2.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
 
 ---
 
@@ -105,7 +105,15 @@ python3 src/veriscope/cli.py malware.bin --name Ransomware --out ./analysis_resu
 
 The Web GUI provides a modern, dark-themed interface with:
 
-### 1. Advanced Deobfuscation Results
+### 1. Real-Time Progress Tracking (NEW in v1.2.0)
+- **Live deobfuscation progress**: Animated progress bar with real-time method updates
+- **Dynamic method chain display**: Watch as each decoding layer is applied (e.g., `base64 → hex → rot13`)
+- **Method attempt visualization**: See which methods are being tried in real-time
+- **Smooth animations**: 400ms delays between method additions for better readability
+- **Guaranteed completion**: Progress bar always reaches 100% before results display
+- **Server-Sent Events (SSE)**: Real-time streaming updates without polling
+
+### 2. Advanced Deobfuscation Results
 - **Multi-layer unwrapping**: Automatically decodes up to 10 layers of nested obfuscation
 - **Detailed audit trail**: Shows exact deobfuscation chain (e.g., XOR → Base64 → GZIP → ROT13)
 - **Method previews**: Displays intermediate decoded content for each layer
@@ -116,23 +124,30 @@ The Web GUI provides a modern, dark-themed interface with:
   - Configurable timeout (2s default) and size limits (1MB)
 - **Suspicious pattern identification**: Flags PowerShell obfuscation, dangerous commands, URLs, IPs
 - **Select specific decoded strings** for custom rule generation
+- **Duplicate filtering**: Automatically removes duplicate deobfuscation results
 
-### 2. IOC Detection
+### 3. Enhanced Detection Rules (NEW in v1.2.0)
+- **Obfuscated + Deobfuscated patterns**: YARA and Sigma rules now include BOTH encoded and decoded strings
+- **High-entropy string inclusion**: Automatically adds suspicious encoded content (Base64, hex, etc.)
+- **Better coverage**: Catch malware before and after execution
+- **Smarter filtering**: Only includes high-value encoded strings (40+ chars minimum)
+
+### 4. IOC Detection
 - Categorized indicators: URLs, IPs, domains, registry keys, mutexes, file paths, crypto addresses
 - Checkbox selection for targeted rule creation
 - Export individual IOC-specific YARA/Sigma rules
 
-### 3. MITRE ATT&CK Mapping
+### 5. MITRE ATT&CK Mapping
 - Technique identification with confidence scores
 - Tactic categorization (Persistence, Defense Evasion, Command & Control, etc.)
 - Direct links to ATT&CK framework documentation
 
-### 4. Dynamic Rule Generation
+### 6. Dynamic Rule Generation
 - Generate rules from selected findings only
 - Download individual or combined detection rules
 - Modal preview before download
 
-### 5. Comprehensive Reports
+### 7. Comprehensive Reports
 - Markdown-formatted analysis reports
 - Export-ready for threat intelligence sharing
 
@@ -330,13 +345,29 @@ chmod +x cleanup_veriscope.sh
 
 ## Project Information
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **License**: MIT
 **Platform**: Linux-first, cross-platform compatible (Windows, macOS)
 **Dependencies**: Python 3.8+, Flask, PyYAML
 **Contact**: BearWatchDev@pm.me
 
 ### Changelog
+
+**v1.2.0** (2025-10-06)
+- ✨ **NEW**: Real-time deobfuscation progress tracking with Server-Sent Events (SSE)
+- ✨ **NEW**: Animated progress bar showing live method attempts and successful decodes
+- ✨ **NEW**: Dynamic method chain visualization (e.g., `base64 → hex → rot13`)
+- ✨ **NEW**: Enhanced Sigma/YARA rules include both obfuscated AND deobfuscated strings
+- ✨ **NEW**: High-entropy encoded strings automatically added to detection rules
+- 🔧 **IMPROVED**: Base64 detection in XOR methods prevents false positives (95% threshold)
+- 🔧 **IMPROVED**: Minimum string length for deobfuscation increased to 40 chars (reduces noise)
+- 🔧 **IMPROVED**: Duplicate deobfuscation results automatically filtered
+- 🔧 **IMPROVED**: Plaintext marker detection no longer adds trace entry (cleaner output)
+- 🔧 **IMPROVED**: Progress bar guaranteed to reach 100% before results display
+- 🔧 **IMPROVED**: Queued updates with 400ms delays for smooth UI animations
+- 🐛 **FIXED**: XOR methods no longer trigger on valid Base64 strings
+- 🐛 **FIXED**: Progress bar synchronization issues resolved
+- 🐛 **FIXED**: Method chain now builds sequentially, not all at once
 
 **v1.1.0** (2025-10-05)
 - ✨ **NEW**: Compression support (GZIP, zlib, bzip2) with magic byte detection
@@ -424,4 +455,4 @@ MIT License - See LICENSE file for details
 
 **Made with ❤ for the cybersecurity community**
 
-*Veriscope v1.1.0 | Advanced multi-layer deobfuscation for defensive security operations*
+*Veriscope v1.2.0 | Advanced multi-layer deobfuscation for defensive security operations*

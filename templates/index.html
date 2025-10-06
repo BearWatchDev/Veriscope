@@ -26,7 +26,7 @@
         </header>
 
         <main>
-            <div class="upload-section">
+            <div id="upload-section" class="upload-section">
                 <h2>Upload File for Analysis</h2>
                 <form id="upload-form" enctype="multipart/form-data">
                     <div class="form-group">
@@ -47,13 +47,35 @@
 
                     <button type="submit" class="btn-primary">🚀 Analyze File</button>
                 </form>
+            </div>
 
-                <div id="loading" class="loading" style="display: none;">
-                    <div class="spinner"></div>
-                    <p>Analyzing file... This may take a moment.</p>
+            <!-- New Analysis Button (hidden by default, shown after results) -->
+            <div id="new-analysis-btn" style="display: none; text-align: center; margin: 30px auto;">
+                <button onclick="resetForNewAnalysis()" class="btn-primary" style="font-size: 1.1em; padding: 15px 40px;">
+                    📁 Upload New File for Analysis
+                </button>
+            </div>
+
+            <!-- Progress Section -->
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Analyzing file... This may take a moment.</p>
+            </div>
+
+            <div id="progress-container" class="progress-container" style="display: none;">
+                <div class="progress-header">
+                    <h3>🔍 Deobfuscation Progress</h3>
+                    <p id="progress-text">Starting analysis...</p>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <div class="progress-preview">
+                    <code id="progress-preview"></code>
                 </div>
             </div>
 
+            <!-- Analysis Results Section -->
             <div id="results" class="results-section" style="display: none;">
                 <h2>Analysis Results</h2>
 
@@ -126,7 +148,7 @@
             <div class="made-with-love">
                 Made with <span class="heart">❤</span> for the cybersecurity community
             </div>
-            <p>Veriscope v1.1.0 | MIT License | For ethical & defensive security operations only</p>
+            <p>Veriscope v1.2.0 | MIT License | For ethical & defensive security operations only</p>
         </footer>
     </div>
 

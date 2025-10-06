@@ -3,7 +3,7 @@ Flask Web GUI Interface (Phase 3)
 Lightweight local dashboard for drag-and-drop file analysis
 """
 
-from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for, Response
 from werkzeug.utils import secure_filename
 import tempfile
 import json
@@ -12,12 +12,16 @@ import sys
 import signal
 import atexit
 import os
+import queue
+import threading
+import time
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from veriscope.core.engine import VeriscopeEngine
 from veriscope.utils.report_generator import ReportGenerator
+from veriscope.core.deobfuscator import DeobfuscationConfig
 
 
 # Initialize Flask app
@@ -33,6 +37,10 @@ ALLOWED_EXTENSIONS = {'txt', 'log', 'ps1', 'bat', 'sh', 'js', 'vbs', 'exe', 'dll
 # Initialize engine
 engine = VeriscopeEngine()
 
+# Progress queue for real-time updates
+progress_queues = {}
+progress_queue_lock = threading.Lock()
+
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
@@ -45,6 +53,41 @@ def index():
     Main page with file upload interface
     """
     return render_template('index.html')
+
+
+@app.route('/progress/<session_id>')
+def progress_stream(session_id):
+    """
+    Server-Sent Events endpoint for real-time progress updates
+    """
+    def generate():
+        # Create queue for this session
+        with progress_queue_lock:
+            if session_id not in progress_queues:
+                progress_queues[session_id] = queue.Queue()
+            q = progress_queues[session_id]
+
+        try:
+            while True:
+                try:
+                    # Get progress update (blocking, with timeout)
+                    msg = q.get(timeout=30)
+
+                    if msg == 'DONE':
+                        yield f"data: {json.dumps({'status': 'complete'})}\n\n"
+                        break
+
+                    yield f"data: {json.dumps(msg)}\n\n"
+                except queue.Empty:
+                    # Send heartbeat to keep connection alive
+                    yield f"data: {json.dumps({'status': 'alive'})}\n\n"
+        finally:
+            # Cleanup queue
+            with progress_queue_lock:
+                if session_id in progress_queues:
+                    del progress_queues[session_id]
+
+    return Response(generate(), mimetype='text/event-stream')
 
 
 @app.route('/analyze', methods=['POST'])
@@ -64,6 +107,7 @@ def analyze():
     # Get form parameters
     rule_name = request.form.get('rule_name', 'Suspicious_Activity')
     author = request.form.get('author', 'Veriscope')
+    session_id = request.form.get('session_id', None)
 
     # Save to temporary file
     temp_file = None
@@ -72,11 +116,57 @@ def analyze():
             temp_file = Path(tmp.name)
             file.save(str(temp_file))
 
+        # Create progress callback if session_id provided
+        def progress_callback(method, layer, total_layers, preview):
+            if session_id:
+                with progress_queue_lock:
+                    if session_id in progress_queues:
+                        progress_queues[session_id].put({
+                            'method': method,
+                            'layer': layer,
+                            'total_layers': total_layers,
+                            'preview': preview[:60]
+                        })
+
+        # Configure deobfuscation with progress callback
+        deob_config = DeobfuscationConfig(
+            progress_callback=progress_callback if session_id else None,
+            speculative_rot13=False  # Disabled - causes too many false positives
+        )
+
+        # Create custom engine with progress tracking
+        custom_engine = VeriscopeEngine(
+            author=author,
+            deobfuscation_config=deob_config
+        )
+
+        # Record start time for minimum display duration
+        analysis_start = time.time()
+
         # Perform analysis
-        result = engine.analyze_file(
+        result = custom_engine.analyze_file(
             file_path=str(temp_file),
             rule_name=rule_name
         )
+
+        # Ensure progress bar is shown for at least 5 seconds
+        elapsed = time.time() - analysis_start
+        if elapsed < 5.0 and session_id:
+            time.sleep(5.0 - elapsed)
+
+        # Signal completion - send final 100% progress update first
+        if session_id:
+            with progress_queue_lock:
+                if session_id in progress_queues:
+                    # Send final progress update to complete the bar
+                    progress_queues[session_id].put({
+                        'method': 'Complete',
+                        'layer': result.deobfuscation_stats.get('max_depth', 1),
+                        'total_layers': result.deobfuscation_stats.get('max_depth', 1),
+                        'preview': 'Analysis complete!'
+                    })
+                    # Then signal done
+                    progress_queues[session_id].put('DONE')
 
         # Generate markdown report
         report_gen = ReportGenerator()

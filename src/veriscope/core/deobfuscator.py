@@ -34,7 +34,7 @@ import zlib
 import bz2
 import time
 import hashlib
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Callable, Optional
 from dataclasses import dataclass, field
 
 
@@ -51,6 +51,8 @@ class DeobfuscationConfig:
     ])
     xor_aggressive_bruteforce: bool = False
     min_output_length: int = 2
+    speculative_rot13: bool = False  # Try ROT13 even without keyword matches (experimental, can cause false positives)
+    progress_callback: Optional[Callable[[str, int, int, str], None]] = None  # callback(method, layer, total_layers, preview)
 
 
 @dataclass
@@ -116,7 +118,7 @@ class Deobfuscator:
             # Check even on iteration 0 in case we already have plaintext after first decode
             if self._check_plaintext_markers(current):
                 if iteration > 0:  # Only stop if we've done at least one decode
-                    result.trace.append(('plaintext_marker', True, current[:120]))
+                    # Don't add trace entry - marker detection is a stopping condition, not a decode layer
                     break
 
             decoded_this_round = False
@@ -138,8 +140,21 @@ class Deobfuscator:
                 methods.append(('xor', self._try_xor))
                 methods.append(('xor_multibyte', self._try_xor_multibyte))
 
-            for method_name, method_func in methods:
+            for method_idx, (method_name, method_func) in enumerate(methods):
                 try:
+                    # Progress callback: attempting method
+                    # Calculate granular progress: layer progress + method progress within layer
+                    if self.config.progress_callback:
+                        preview = current[:60] if len(current) > 60 else current
+                        # Progress includes partial completion within the current layer
+                        method_progress = method_idx / len(methods)  # 0.0 to 1.0 within this layer
+                        self.config.progress_callback(
+                            f"Trying {method_name}",
+                            iteration + method_progress,  # e.g., 2.3 means layer 2, 30% through methods
+                            self.config.max_depth,
+                            preview
+                        )
+
                     decoded = method_func(current)
 
                     if decoded and decoded != current:
@@ -167,6 +182,16 @@ class Deobfuscator:
                         previous_quality = current_quality
                         current = decoded
                         decoded_this_round = True
+
+                        # Progress callback: success
+                        if self.config.progress_callback:
+                            self.config.progress_callback(
+                                f"✓ {method_name} successful",
+                                iteration + 1,
+                                self.config.max_depth,
+                                preview
+                            )
+
                         break
 
                 except Exception:
@@ -438,9 +463,42 @@ class Deobfuscator:
             decoded = codecs.decode(text, 'rot13')
 
             # Check for common words or markers
-            common_words = ['http', 'www', 'exe', 'dll', 'cmd', 'powershell', 'script', 'user', 'config', 'token', 'shell', 'alert', 'process']
+            common_words = [
+                'http', 'www', 'exe', 'dll', 'cmd', 'powershell', 'script',
+                'user', 'config', 'token', 'shell', 'alert', 'process',
+                'mail', 'from', 'subject', 'message', 'email', 'sender',
+                'recipient', 'attacker', 'example', 'update', 'urgent'
+            ]
             if any(word in decoded.lower() for word in common_words):
                 return decoded
+
+            # Speculative ROT13: If enabled, also check if output looks like it could be further decoded
+            if self.config.speculative_rot13 and len(decoded) >= 20:
+                # Check if decoded output looks like valid Base64
+                base64_alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+                base64_ratio = sum(1 for c in decoded if c in base64_alphabet) / len(decoded)
+
+                if base64_ratio > 0.90:  # 90% Base64 characters
+                    # Verify it can actually be decoded as Base64
+                    try:
+                        cleaned = ''.join(c for c in decoded if c in base64_alphabet)
+                        test_decode = base64.b64decode(cleaned)
+                        if len(test_decode) >= 10:  # Non-trivial output
+                            return decoded
+                    except:
+                        pass
+
+                # Check if output looks like hex-encoded data
+                if len(decoded) % 2 == 0:
+                    hex_chars = sum(1 for c in decoded if c in '0123456789abcdefABCDEF')
+                    if hex_chars / len(decoded) > 0.95:
+                        try:
+                            test_hex = bytes.fromhex(decoded)
+                            if len(test_hex) >= 10:
+                                return decoded
+                        except:
+                            pass
+
         except Exception:
             pass
 
@@ -481,9 +539,18 @@ class Deobfuscator:
     def _try_xor(self, text: str) -> str:
         """Try single-byte XOR decoding"""
         try:
+            # Skip if looks like hex
             if len(text) >= 20 and len(text) % 2 == 0:
                 if all(c in '0123456789abcdefABCDEF' for c in text[:100]):
                     return ""
+
+            # Skip if looks like valid Base64 (let Base64 decoder handle it)
+            # Even if Base64 decode fails, if it looks like Base64, let the Base64 method try
+            if len(text) >= 20:
+                base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+                base64_ratio = sum(1 for c in text if c in base64_chars) / len(text)
+                if base64_ratio > 0.95:  # 95% Base64 characters - likely Base64
+                    return ""  # Let Base64 decoder handle it (even if corrupted)
 
             try:
                 data = text.encode('latin-1')
@@ -530,6 +597,14 @@ class Deobfuscator:
     def _try_xor_multibyte(self, text: str) -> str:
         """Try multi-byte XOR decoding"""
         try:
+            # Skip if looks like valid Base64 (let Base64 decoder handle it)
+            # Even if Base64 decode fails, if it looks like Base64, let the Base64 method try
+            if len(text) >= 20:
+                base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+                base64_ratio = sum(1 for c in text if c in base64_chars) / len(text)
+                if base64_ratio > 0.95:  # 95% Base64 characters - likely Base64
+                    return ""  # Let Base64 decoder handle it (even if corrupted)
+
             try:
                 data = text.encode('latin-1')
             except UnicodeEncodeError:
@@ -582,3 +657,64 @@ class Deobfuscator:
 
         except Exception:
             return ""
+
+    def deobfuscate_batch(self, strings: List[str]) -> List[DeobfuscationResult]:
+        """
+        Deobfuscate a batch of strings
+
+        Args:
+            strings: List of strings to deobfuscate
+
+        Returns:
+            List of DeobfuscationResult objects
+        """
+        results = []
+        for text in strings:
+            # Skip short strings to avoid processing fragments
+            # Minimum 40 chars helps filter out partial Base64/hex strings
+            if isinstance(text, str) and len(text) >= 40:
+                result = self.deobfuscate_string(text)
+                if result.layers_decoded > 0:  # Only include successfully decoded strings
+                    results.append(result)
+        return results
+
+    def get_deobfuscation_stats(self, results: List[DeobfuscationResult]) -> dict:
+        """
+        Generate statistics from deobfuscation results
+
+        Args:
+            results: List of DeobfuscationResult objects
+
+        Returns:
+            Dictionary with statistics
+        """
+        if not results:
+            return {
+                'total_processed': 0,
+                'successfully_decoded': 0,
+                'max_depth': 0,
+                'timeout_count': 0,
+                'suspicious_count': 0,
+                'methods_used': {}
+            }
+
+        total = len(results)
+        successfully_decoded = sum(1 for r in results if r.layers_decoded > 0)
+        max_depth = max((r.layers_decoded for r in results), default=0)
+        timeout_count = sum(1 for r in results if r.timed_out)
+        suspicious_count = sum(1 for r in results if r.suspicious_patterns)
+
+        # Count method usage
+        methods_used = {}
+        for result in results:
+            for method in result.methods_used:
+                methods_used[method] = methods_used.get(method, 0) + 1
+
+        return {
+            'total_processed': total,
+            'successfully_decoded': successfully_decoded,
+            'max_depth': max_depth,
+            'timeout_count': timeout_count,
+            'suspicious_count': suspicious_count,
+            'methods_used': methods_used
+        }

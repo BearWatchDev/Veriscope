@@ -163,6 +163,7 @@ class VeriscopeEngine:
             print(f"[*] Attempting to deobfuscate encoded strings...")
 
             result.deobfuscation_results = []
+            seen_originals = set()  # Track original strings to avoid duplicates
 
             # Also try deobfuscating the entire raw file content (handles whole-file obfuscation)
             try:
@@ -173,11 +174,15 @@ class VeriscopeEngine:
                         raw_result = self.deobfuscator.deobfuscate_string(raw_content)
                         if raw_result.layers_decoded > 0:
                             result.deobfuscation_results.append(raw_result)
+                            seen_originals.add(raw_result.original)  # Track this original
             except:
                 pass
 
-            # Batch deobfuscate all extracted strings
-            result.deobfuscation_results.extend(self.deobfuscator.deobfuscate_batch(result.strings))
+            # Batch deobfuscate all extracted strings (skip duplicates)
+            for deobf_result in self.deobfuscator.deobfuscate_batch(result.strings):
+                if deobf_result.original not in seen_originals:
+                    result.deobfuscation_results.append(deobf_result)
+                    seen_originals.add(deobf_result.original)
             result.deobfuscation_stats = self.deobfuscator.get_deobfuscation_stats(result.deobfuscation_results)
 
             # Add all decoded layers to the analysis pool

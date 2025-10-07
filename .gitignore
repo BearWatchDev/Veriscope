@@ -170,6 +170,7 @@ Test Strings/
 test_hardset.py
 test_suite.py
 run_tests.py
+test_deepseek.py
 *hardset*.txt
 *hardset*.md
 *hardset*.zip
@@ -179,6 +180,8 @@ veriscope_deobfuscation_brief.txt
 DEOBFUSCATION_V1.1_SUMMARY.md
 HARDSET_30_RESULTS.md
 HARDSET_NO_AES_GAP_ANALYSIS.md
+PRESET_IMPLEMENTATION.md
+preset_demo.py
 
 # Debug & Development Output
 debug_*.txt

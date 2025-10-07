@@ -39,11 +39,19 @@ from dataclasses import dataclass, field
 
 # Import modular decoders
 from .deobfuscation import get_all_decoders
+from .deobfuscation_presets import DeobfuscationPreset, PresetLibrary, ValidationThresholds
 
 
 @dataclass
 class DeobfuscationConfig:
-    """Configuration for deobfuscation engine"""
+    """
+    Configuration for deobfuscation engine
+
+    Can be initialized from:
+    1. Preset name: DeobfuscationConfig(preset="aggressive")
+    2. Custom parameters: DeobfuscationConfig(max_depth=8, xor_enabled=False)
+    3. Preset + overrides: DeobfuscationConfig(preset="balanced", max_depth=8)
+    """
     enabled: bool = True
     max_depth: int = 6
     per_string_timeout_secs: float = 2.0
@@ -58,6 +66,66 @@ class DeobfuscationConfig:
     smart_mode: bool = False  # DEPRECATED: Smart mode now runs automatically as fallback when default fails
     smart_mode_timeout_multiplier: float = 3.0  # DEPRECATED: No longer used (smart mode is automatic fallback)
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None  # callback(method, layer, total_layers, preview)
+
+    # Validation thresholds (can be set via preset or manually)
+    thresholds: ValidationThresholds = field(default_factory=ValidationThresholds)
+
+    # Preset-based initialization
+    preset: Optional[str] = None  # Preset name to load ("conservative", "balanced", "aggressive", etc.)
+
+    def __post_init__(self):
+        """Apply preset if specified"""
+        if self.preset:
+            preset_obj = PresetLibrary.get_preset(self.preset)
+            if preset_obj:
+                # Apply preset values (but don't override explicitly set values)
+                # This is tricky with dataclasses, so we'll apply preset as base
+                # Note: Explicitly set values in __init__ will override preset
+                if not hasattr(self, '_preset_applied'):
+                    self.max_depth = preset_obj.max_depth
+                    self.per_string_timeout_secs = preset_obj.per_string_timeout_secs
+                    self.max_input_bytes = preset_obj.max_input_bytes
+                    self.xor_enabled = preset_obj.xor_enabled
+                    self.xor_common_keys = preset_obj.xor_common_keys
+                    self.xor_aggressive_bruteforce = preset_obj.xor_aggressive_bruteforce
+                    self.min_output_length = preset_obj.min_output_length
+                    self.speculative_rot13 = preset_obj.speculative_rot13
+                    self.thresholds = preset_obj.thresholds
+                    self._preset_applied = True
+
+    @staticmethod
+    def from_preset(preset_name: str, **overrides) -> 'DeobfuscationConfig':
+        """
+        Create config from preset with optional overrides
+
+        Example:
+            config = DeobfuscationConfig.from_preset("aggressive", max_depth=10)
+        """
+        preset = PresetLibrary.get_preset(preset_name)
+        if not preset:
+            raise ValueError(f"Unknown preset: {preset_name}. Available: {PresetLibrary.list_presets()}")
+
+        # Start with preset values
+        config = DeobfuscationConfig(
+            enabled=True,
+            max_depth=preset.max_depth,
+            per_string_timeout_secs=preset.per_string_timeout_secs,
+            max_input_bytes=preset.max_input_bytes,
+            xor_enabled=preset.xor_enabled,
+            xor_common_keys=preset.xor_common_keys,
+            xor_aggressive_bruteforce=preset.xor_aggressive_bruteforce,
+            min_output_length=preset.min_output_length,
+            speculative_rot13=preset.speculative_rot13,
+            thresholds=preset.thresholds,
+            preset=preset_name
+        )
+
+        # Apply overrides
+        for key, value in overrides.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+
+        return config
 
 
 @dataclass
@@ -187,6 +255,82 @@ class Deobfuscator:
                         result.failure_reason = f"All {len(smart_results) + 1} strategies failed to produce valid output"
 
         # Return default result (success or failure)
+        return result
+
+    def deobfuscate_with_preset_rotation(self, text: str, presets: List[str] = None) -> DeobfuscationResult:
+        """
+        Attempt deobfuscation with automatic preset rotation
+
+        Tries multiple configuration presets automatically until one succeeds.
+        This eliminates the need for manual threshold tuning for different test packs.
+
+        Args:
+            text: Input string (potentially obfuscated)
+            presets: List of preset names to try (in order). If None, uses default rotation:
+                     ["balanced", "malware_analysis", "aggressive", "deepseek_optimized"]
+
+        Returns:
+            DeobfuscationResult with best result found across all presets
+
+        Example:
+            deobfuscator = Deobfuscator()
+            result = deobfuscator.deobfuscate_with_preset_rotation(obfuscated_string)
+            print(f"Success with preset: {result.strategy_used}")
+        """
+        # Default preset rotation order
+        if presets is None:
+            presets = ["balanced", "malware_analysis", "aggressive", "deepseek_optimized"]
+
+        results = []
+        original_config = self.config
+
+        for preset_name in presets:
+            # Load preset configuration
+            try:
+                preset_config = DeobfuscationConfig.from_preset(preset_name)
+                # Preserve progress callback from original config
+                if original_config.progress_callback:
+                    preset_config.progress_callback = original_config.progress_callback
+
+                # Create new deobfuscator with preset config
+                preset_deobfuscator = Deobfuscator(preset_config)
+
+                # Try deobfuscation with this preset
+                result = preset_deobfuscator.deobfuscate_string(text)
+
+                # Tag result with preset name
+                result.strategy_used = f"preset:{preset_name}"
+                results.append(result)
+
+                # Early termination: if this preset succeeded, no need to try others
+                if not result.failed and not result.timed_out:
+                    # Restore original config
+                    self.config = original_config
+                    self.decoders = get_all_decoders(self.config)
+                    return result
+
+            except Exception as e:
+                # If preset loading fails, skip it
+                continue
+
+        # Restore original config
+        self.config = original_config
+        self.decoders = get_all_decoders(self.config)
+
+        # All presets failed - return the best result based on quality score
+        if results:
+            best_result = max(results, key=lambda r: r.quality_score)
+            # Update failure reason to show all presets were tried
+            presets_tried = [r.strategy_used for r in results]
+            best_result.strategies_attempted = presets_tried
+            if not best_result.failure_reason:
+                best_result.failure_reason = f"All {len(presets)} presets failed: {', '.join(presets)}"
+            return best_result
+
+        # No results at all - return empty failure
+        result = DeobfuscationResult(original=text)
+        result.failed = True
+        result.failure_reason = "No valid presets to try"
         return result
 
     def _check_plaintext_markers(self, text: str) -> bool:
@@ -382,6 +526,8 @@ class Deobfuscator:
         NEW STRATEGY: Check final result first, then fall back to intermediate results
         if final result is garbage. This prevents regressions while fixing over-decoding.
 
+        Uses configurable thresholds from config.thresholds (preset-based or custom).
+
         Args:
             result: DeobfuscationResult to validate
             text: Original input text
@@ -389,10 +535,12 @@ class Deobfuscator:
         Returns:
             Tuple of (is_valid, failure_reason, quality_score)
         """
+        thresholds = self.config.thresholds
+
         # If no decoding happened, check if input was already plaintext
         if result.layers_decoded == 0:
             quality = self._calculate_quality(text)
-            if quality < 0.3:
+            if quality < thresholds.plaintext_min_quality:
                 return False, "No decoding performed and input appears to be binary/encoded", quality
             return True, "", quality
 
@@ -405,21 +553,21 @@ class Deobfuscator:
         final_failure_reason = ""
 
         # Check for mangled output indicators
-        if len(final_output) < 4:
+        if len(final_output) < thresholds.min_output_length:
             is_final_good = False
             final_failure_reason = "Output too short"
-        elif quality < 0.45:
+        elif quality < thresholds.final_min_quality:
             is_final_good = False
             final_failure_reason = f"Low quality score ({quality:.2f})"
         elif len(final_output) > 20:
             null_ratio = final_output.count('\x00') / len(final_output)
-            if null_ratio > 0.3:
+            if null_ratio > thresholds.final_max_null_ratio:
                 is_final_good = False
                 final_failure_reason = f"High null byte ratio ({null_ratio:.1%})"
 
             non_ascii_count = sum(1 for c in final_output if ord(c) > 127)
             non_ascii_ratio = non_ascii_count / len(final_output)
-            if non_ascii_ratio > 0.3:
+            if non_ascii_ratio > thresholds.final_max_nonascii_ratio:
                 is_final_good = False
                 final_failure_reason = f"High non-ASCII ratio ({non_ascii_ratio:.1%})"
 
@@ -432,7 +580,7 @@ class Deobfuscator:
         # If an intermediate result has much higher quality than final, use it instead
 
         # Only check intermediates if we have multiple layers AND final quality is low
-        if result.layers_decoded < 2 or quality >= 0.47:
+        if result.layers_decoded < 2 or quality >= thresholds.intermediate_trigger_quality:
             return False, final_failure_reason or "Low quality output", quality
 
         # Quality regression detected - look for better intermediate result
@@ -442,33 +590,33 @@ class Deobfuscator:
         for i, decoded_str in enumerate(result.deobfuscated[:-1]):  # Exclude final result
             intermediate_quality = self._calculate_quality(decoded_str)
 
-            # Require good quality (>= 0.50) AND better than final (at least 0.05 difference)
-            if intermediate_quality < 0.50:
+            # Require good quality AND better than final (configurable improvement delta)
+            if intermediate_quality < thresholds.intermediate_min_quality:
                 continue
 
-            if intermediate_quality < quality + 0.05:
+            if intermediate_quality < quality + thresholds.intermediate_min_improvement:
                 continue
 
             # Check for red flags
-            if len(decoded_str) < 4:
+            if len(decoded_str) < thresholds.min_output_length:
                 continue
 
             # Check for null bytes (indicates binary data)
             null_ratio = decoded_str.count('\x00') / len(decoded_str) if decoded_str else 0
-            if null_ratio > 0.03:
+            if null_ratio > thresholds.intermediate_max_null_ratio:
                 continue
 
             # Check for excessive non-ASCII
             non_ascii_count = sum(1 for c in decoded_str if ord(c) > 127)
             non_ascii_ratio = non_ascii_count / len(decoded_str) if decoded_str else 0
-            if non_ascii_ratio > 0.05:
+            if non_ascii_ratio > thresholds.intermediate_max_nonascii_ratio:
                 continue
 
             # Check for hex-digit-only pattern (indicates still-encoded data)
             if len(decoded_str) >= 20:
                 hex_chars = sum(1 for c in decoded_str if c in '0123456789abcdefABCDEF')
                 hex_ratio = hex_chars / len(decoded_str)
-                if hex_ratio > 0.9:  # More than 90% hex digits = likely still encoded
+                if hex_ratio > thresholds.intermediate_max_hex_ratio:
                     continue
 
             # Track best intermediate result
@@ -477,7 +625,7 @@ class Deobfuscator:
                 best_intermediate_index = i
 
         # If we found a good intermediate result, truncate to that point and accept it
-        if best_intermediate_index >= 0 and best_intermediate_quality >= quality + 0.05:
+        if best_intermediate_index >= 0 and best_intermediate_quality >= quality + thresholds.intermediate_min_improvement:
             # Truncate deobfuscated list to stop at the good intermediate result
             result.deobfuscated = result.deobfuscated[:best_intermediate_index + 1]
             result.layers_decoded = len(result.deobfuscated)

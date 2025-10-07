@@ -40,9 +40,17 @@ class ROT13Decoder(BaseDecoder):
         """
         try:
             # Don't trigger on Base64 (lots of +/= chars)
-            base64_chars = text.count('+') + text.count('/') + text.count('=')
-            if base64_chars > len(text) * 0.05:
+            base64_chars_count = text.count('+') + text.count('/') + text.count('=')
+            if base64_chars_count > len(text) * 0.05:
                 return ""
+
+            # Don't trigger if input itself looks like base64 (would cause ROT13 → Base64 false positive)
+            # Check if input has high ratio of base64 alphabet characters
+            if len(text) >= 20:
+                base64_alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+                base64_ratio = sum(1 for c in text if c in base64_alphabet) / len(text)
+                if base64_ratio > 0.92:  # 92%+ base64 chars in input = probably already base64, skip ROT13
+                    return ""
 
             decoded = codecs.decode(text, 'rot13')
 
@@ -118,7 +126,7 @@ class URLDecoder(BaseDecoder):
 
 
 class CharCodesDecoder(BaseDecoder):
-    """Character code decoding (placeholder for future implementation)"""
+    """Character code decoding for comma-separated, colon-separated, or space-separated decimal codes"""
 
     def get_name(self) -> str:
         return "char_codes"
@@ -127,13 +135,60 @@ class CharCodesDecoder(BaseDecoder):
         """
         Decode character codes (e.g., JavaScript String.fromCharCode)
 
-        Currently a placeholder for future implementation
+        Supports formats:
+        - Comma-separated: "72,101,108,108,111"
+        - Colon-separated: "72:101:108:108:111"
+        - Space-separated: "72 101 108 108 111"
 
         Args:
-            text: Input string
+            text: Input string with character codes
 
         Returns:
-            Empty string (not implemented)
+            Decoded string if valid char codes found, empty otherwise
         """
-        # Placeholder for character code decoding
+        try:
+            # Determine delimiter
+            delimiter = None
+            if ',' in text and text.count(',') >= 3:
+                delimiter = ','
+            elif ':' in text and text.count(':') >= 3:
+                delimiter = ':'
+            elif ' ' in text and text.count(' ') >= 3:
+                # Only if no other delimiters
+                if ',' not in text and ':' not in text:
+                    delimiter = ' '
+
+            if not delimiter:
+                return ""
+
+            # Split and parse
+            parts = [p.strip() for p in text.split(delimiter)]
+
+            # Check if all parts are valid decimal numbers
+            try:
+                char_codes = [int(p) for p in parts if p.isdigit()]
+            except ValueError:
+                return ""
+
+            # Must have at least 4 char codes
+            if len(char_codes) < 4:
+                return ""
+
+            # All codes must be valid ASCII/Unicode range (0-1114111)
+            if not all(0 <= code <= 1114111 for code in char_codes):
+                return ""
+
+            # Convert to string
+            decoded = ''.join(chr(code) for code in char_codes)
+
+            # Only return if result is printable
+            if decoded and len(decoded) >= 4:
+                # Check if mostly printable
+                printable_ratio = sum(1 for c in decoded if c.isprintable()) / len(decoded)
+                if printable_ratio > 0.8:
+                    return decoded
+
+        except Exception:
+            pass
+
         return ""

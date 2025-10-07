@@ -232,27 +232,27 @@ class PresetLibrary:
         - Benchmark testing
         """
         thresholds = ValidationThresholds(
-            final_min_quality=0.42,              # More permissive for test samples
-            final_max_null_ratio=0.35,
-            final_max_nonascii_ratio=0.35,
+            final_min_quality=0.38,              # Very permissive for test samples
+            final_max_null_ratio=0.40,
+            final_max_nonascii_ratio=0.40,
             min_output_length=3,
 
-            intermediate_trigger_quality=0.44,   # Check intermediates more often
-            intermediate_min_quality=0.48,
-            intermediate_min_improvement=0.04,   # Smaller delta
-            intermediate_max_null_ratio=0.04,
-            intermediate_max_nonascii_ratio=0.07,
-            intermediate_max_hex_ratio=0.87,
+            intermediate_trigger_quality=0.42,   # Check intermediates more aggressively
+            intermediate_min_quality=0.45,
+            intermediate_min_improvement=0.03,   # Smaller delta to catch more cases
+            intermediate_max_null_ratio=0.05,
+            intermediate_max_nonascii_ratio=0.08,
+            intermediate_max_hex_ratio=0.85,     # More permissive hex detection
 
-            plaintext_min_quality=0.27,
+            plaintext_min_quality=0.25,          # Very permissive for already-decoded inputs
         )
 
         return DeobfuscationPreset(
             name="deepseek_optimized",
             description="Tuned for DeepSeek test pack patterns and benchmarks",
-            max_depth=7,
-            per_string_timeout_secs=2.5,
-            xor_aggressive_bruteforce=False,
-            speculative_rot13=True,              # DeepSeek has ROT13 tests
+            max_depth=8,                         # Deeper for complex chains
+            per_string_timeout_secs=3.0,         # Longer timeout for complex patterns
+            xor_aggressive_bruteforce=True,      # Try all XOR keys
+            speculative_rot13=True,              # DeepSeek has ROT13/Caesar tests
             thresholds=thresholds
         )

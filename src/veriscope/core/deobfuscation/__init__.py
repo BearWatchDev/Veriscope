@@ -96,11 +96,12 @@ def get_all_decoders(config=None):
         JSONExtractorDecoder(config),
         JSAtobExtractorDecoder(config),
 
-        # String transforms
+        # String transforms (must come early to avoid false base64 matches)
         BinaryStringDecoder(config),
         HexEscapeDecoder(config),
         UnicodeEscapeDecoder(config),
         HTMLEntityDecoder(config),
+        CharCodesDecoder(config),        # MUST come before base64 (numbers look like base64)
 
         # Standard decoders
         HexDecoder(config),
@@ -110,7 +111,6 @@ def get_all_decoders(config=None):
         Base64URLDecoder(config),
         PowerShellBase64Decoder(config),
         URLDecoder(config),
-        CharCodesDecoder(config),
     ]
 
     # Add compression decoders (CRITICAL: must come early for magic byte detection)

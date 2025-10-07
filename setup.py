@@ -10,7 +10,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="veriscope",
-    version="1.0.0",
+    version="1.3.0",
     author="BearWatchDev",
     author_email="BearWatchDev@pm.me",
     description="Unified IOC + ATT&CK + YARA + Sigma detection engine",

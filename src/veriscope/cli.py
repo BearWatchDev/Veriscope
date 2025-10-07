@@ -91,7 +91,7 @@ def main():
     parser.add_argument(
         '-v', '--version',
         action='version',
-        version='Veriscope v1.2.0'
+        version='Veriscope v1.3.0'
     )
 
     # Parse arguments
@@ -204,7 +204,7 @@ def print_banner():
  ╚╝ └─┘┴└─┴└─┘└─┘└─┘┴  └─┘
 
 Unified IOC + ATT&CK + YARA + Sigma Engine
-Version 1.0.0 | MIT License
+Version 1.3.0 | MIT License
 """
     print(banner)
 

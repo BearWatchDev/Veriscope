@@ -46,8 +46,9 @@
             <div class="about-section">
                 <h3>The Challenge</h3>
                 <p>
-                    Modern malware increasingly relies on sophisticated obfuscation techniques—Base64 encoding, GZIP compression,
-                    hexadecimal encoding, single-byte XOR ciphers, ROT13/Caesar ciphers, URL encoding, PowerShell obfuscation, and
+                    Modern malware increasingly relies on sophisticated obfuscation techniques—Base64 encoding (standard, URL-safe/JWT),
+                    GZIP/zlib/bzip2 compression, hexadecimal encoding, ASCII85/Base32 variants, binary string encoding, JavaScript escapes
+                    (\xHH, \uXXXX), repeating-key XOR ciphers, ROT13/Caesar ciphers, URL encoding, PowerShell UTF-16LE obfuscation, and
                     complex multi-layer encoding chains (often 6+ layers deep). Analysts waste valuable time manually decoding these
                     layers before they can even begin their investigation.
                 </p>
@@ -69,18 +70,20 @@
                     <!-- Row 1: Core Analysis Pipeline -->
                     <div class="capability-card">
                         <h4>Advanced Multi-Layer Deobfuscation</h4>
-                        <p>Automatically unwraps up to 6 layers of nested obfuscation (configurable to 10+) including: Base64 (standard
-                        & PowerShell UTF-16LE), GZIP compression (magic byte detection: 0x1f 0x8b), hexadecimal encoding, single-byte
-                        XOR cipher (keys: 0x5A, 0x20, 0xFF, 0xAA), ROT13/Caesar cipher with English language scoring, URL encoding, and
-                        JavaScript/VBScript character codes. Features SHA1 hash-based cycle detection, per-string timeout enforcement
-                        (2s default), and automatic plaintext detection with detailed audit trails.</p>
+                        <p>20 specialized decoders automatically unwrap up to 6 layers of nested obfuscation including: Base64 (standard,
+                        PowerShell UTF-16LE, URL-safe/JWT), GZIP/zlib/bzip2 compression with magic byte detection, hexadecimal encoding,
+                        ASCII85/Base32 variants, binary strings (01010100...), JavaScript escapes (\xHH, \uXXXX), ROT13/Caesar cipher,
+                        URL encoding, and advanced XOR cryptanalysis (position-based repeating-key breaking, crib-dragging attacks, common
+                        key dictionary). Features SHA1 cycle detection, per-string timeout (2s), automatic plaintext markers, and detailed
+                        audit trails.</p>
                     </div>
                     <div class="capability-card">
                         <h4>Smart Deobfuscation Engine</h4>
-                        <p>Intelligent method ordering prevents false positives (XOR → Hex → ROT13 → Base64). Automatically configured
-                        with production-tested defaults: 6-layer maximum depth (configurable), 2-second per-string timeout, 1MB input
-                        size limit, and optimized XOR key sets (0x5A, 0x20, 0xFF, 0xAA). Advanced users can programmatically fine-tune
-                        all settings via the DeobfuscationConfig API.</p>
+                        <p>Automatic fallback system tries 6 decoder strategies when default fails (base64_first, xor_first, rot13_first,
+                        skip_base64_initially, hex_xor_first). Real-time progress tracking with Server-Sent Events shows live method attempts
+                        and animated decode chains (e.g., "base64 → hex → rot13"). Conservative heuristics with strict can_decode() validation
+                        prevent false positives. Early termination on success. Configurable via DeobfuscationConfig API: max depth (6 default),
+                        timeout (30s), XOR enable/disable, custom progress callbacks.</p>
                     </div>
                     <div class="capability-card">
                         <h4>IOC Extraction</h4>
@@ -104,23 +107,26 @@
                     </div>
                     <div class="capability-card">
                         <h4>Interactive Analysis Dashboard</h4>
-                        <p>Clickable summary cards provide deep-dive views into strings, decoded content, IOCs, and ATT&CK techniques.
-                        Deobfuscation trace timeline visualizes exact decoding chains with method previews. IOC breakdown by category
-                        with count badges. User-selectable findings for custom rule generation.</p>
+                        <p>Real-time animated progress bar shows live deobfuscation progress with smooth 0-100% tracking across all strategies.
+                        Method chain visualization displays successful decode sequences (e.g., "base64 → hex → rot13"). Clickable summary cards
+                        provide deep-dive views into strings, decoded content, IOCs, and ATT&CK techniques. Deobfuscation trace timeline with
+                        method previews. IOC breakdown by category with count badges. User-selectable findings for custom rule generation.</p>
                     </div>
 
                     <!-- Row 3: Detection & Reporting -->
                     <div class="capability-card">
                         <h4>YARA Rule Generation</h4>
-                        <p>Generates file-based detection signatures with string conditions, metadata, and configurable thresholds.
-                        Supports both general catch-all rules and IOC-specific rules for targeted detection. Includes ATT&CK technique
-                        references and TLP classification metadata.</p>
+                        <p>Generates file-based detection signatures with string conditions, metadata, and configurable thresholds. Includes
+                        BOTH obfuscated and deobfuscated strings for comprehensive detection coverage. High-entropy strings (40+ chars) automatically
+                        added to detect encoded payloads. Supports general catch-all rules and IOC-specific rules for targeted detection. Includes
+                        ATT&CK technique references, TLP classification metadata, and user-selectable findings.</p>
                     </div>
                     <div class="capability-card">
                         <h4>Sigma Rule Generation</h4>
                         <p>Creates SIEM-compatible detection rules in Sigma format (YAML). Generates log-based detections for network
-                        activity, process execution, registry modifications, and file operations. Compatible with Splunk, Elastic,
-                        QRadar, and ArcSight.</p>
+                        activity, process execution, registry modifications, and file operations. Includes high-entropy encoded strings
+                        for comprehensive malware detection coverage. Compatible with Splunk, Elastic, QRadar, ArcSight, and other SIEM
+                        platforms. Supports IOC-specific rules with ATT&CK technique mappings.</p>
                     </div>
                     <div class="capability-card">
                         <h4>Comprehensive Reporting</h4>
@@ -135,13 +141,13 @@
             <div class="about-section">
                 <h3>Technical Architecture</h3>
                 <ul class="tech-list">
-                    <li><strong>Version:</strong> 1.1.0</li>
+                    <li><strong>Version:</strong> 1.3.0</li>
                     <li><strong>License:</strong> MIT Open Source</li>
                     <li><strong>Platform:</strong> Linux-first design, cross-platform compatible (Windows, macOS)</li>
                     <li><strong>Dependencies:</strong> Minimal footprint—Python 3.8+ standard library, Flask, PyYAML</li>
                     <li><strong>Performance:</strong> Processes typical malware samples (1-10MB) in under 5 seconds</li>
-                    <li><strong>Interfaces:</strong> Command-line tool, Web GUI with interactive modals, REST API (for integration)</li>
-                    <li><strong>Deobfuscation:</strong> 7 encoding methods, 6-layer depth (configurable), SHA1 cycle detection, 2s timeout per string</li>
+                    <li><strong>Interfaces:</strong> Command-line tool, Web GUI with real-time progress tracking, REST API (for integration)</li>
+                    <li><strong>Deobfuscation:</strong> 20 specialized decoders, 6 smart strategies with automatic fallback, 6-layer depth (configurable), SHA1 cycle detection, 30s timeout, Server-Sent Events for live progress</li>
                 </ul>
             </div>
 
@@ -194,7 +200,7 @@
             <div class="made-with-love">
                 Made with <span class="heart">❤</span> for the cybersecurity community
             </div>
-            <p>Veriscope v1.1.0 | MIT License | For ethical & defensive security operations only</p>
+            <p>Veriscope v1.3.0 | MIT License | For ethical & defensive security operations only</p>
         </footer>
     </div>
 </body>

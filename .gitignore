@@ -19,23 +19,49 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Virtual Environment
 venv/
 ENV/
 env/
+.venv/
+.ENV/
 
-# IDE
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# Testing
+# Testing & Coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+
+# Type Checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
 
 # Output files
 *.yar
@@ -43,6 +69,8 @@ htmlcov/
 *_report.md
 results/
 output/
+analysis_output/
+analysis_results/
 
 # Malware samples (never commit)
 samples/
@@ -50,13 +78,75 @@ samples/
 *.dll
 *.bin
 
-# OS
+# OS Files
 .DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+.Trash-*/
 
 # Runtime
 *.pid
 *.lock
+
+# Logs
+*.log
+logs/
+log/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+instance/
+
+# Flask/Web
+flask_session/
+uploads/
+uploaded_files/
+
+# Environment & Secrets
+.env
+.env.local
+.env.production
+.env.development
+.env.*
+env.txt
+.envrc
+
+# Temporary Files
+temp/
+tmp/
+*.tmp
+*.bak
+*.backup
+*~backup
+
+# Documentation Build
+docs/_build/
+docs/.doctrees/
+site/
+
+# Translations
+*.mo
+*.pot
+
+# Node (in case frontend tools added)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
 
 # Development artifacts (should not be in public repo)
 .claude/
@@ -79,6 +169,7 @@ test_easy50.py
 Test Strings/
 test_hardset.py
 test_suite.py
+run_tests.py
 *hardset*.txt
 *hardset*.md
 *hardset*.zip
@@ -89,8 +180,21 @@ DEOBFUSCATION_V1.1_SUMMARY.md
 HARDSET_30_RESULTS.md
 HARDSET_NO_AES_GAP_ANALYSIS.md
 
-# Keep for development (internal reference only)
-# ENGINE_IMPROVEMENTS.md - contains detailed technical analysis
+# Debug & Development Output
+debug_*.txt
+*_debug.txt
+debug_*.md
+*_debug.md
+benchmark_*.txt
+*_benchmark.txt
+experiment_*.txt
+*_experiment.txt
+scratch_*.txt
+*_scratch.txt
+*_analysis.txt
+deob_nightmare.py
 
 # Backup files
 src/veriscope/core/deobfuscator_old.py
+*_old.py
+*_backup.py

@@ -41,17 +41,19 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     if (progressContainer) {
         progressContainer.style.display = 'block';
         progressBar.style.width = '0%';
+        progressBar.style.transition = 'none'; // Reset transition
         progressText.textContent = 'Starting analysis...';
-        progressPreview.textContent = '';
+        progressPreview.textContent = ''; // Clear previous method chain
     }
 
     // Start listening for progress updates
     const eventSource = new EventSource(`/progress/${sessionId}`);
 
     let progressCompleted = false;
-    let methodChain = []; // Track the chain of successful methods
-    let updateQueue = []; // Queue for delayed updates
+    let methodChain = []; // Track the chain of successful methods (reset for each upload)
+    let updateQueue = []; // Queue for delayed updates (reset for each upload)
     let isProcessingQueue = false;
+    let lastProgressValue = 0; // Track last progress to prevent backwards movement
 
     // Function to process queued updates with delay
     const processUpdateQueue = () => {
@@ -66,17 +68,18 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         if (update.type === 'success') {
             methodChain.push(update.methodName);
             progressPreview.textContent = methodChain.join(' → ');
-        } else if (update.type === 'trying') {
-            const chainText = methodChain.length > 0 ? methodChain.join(' → ') + ' → ' : '';
-            progressPreview.textContent = chainText + '⟳ ' + update.methodName + '...';
         } else if (update.type === 'complete') {
             progressPreview.textContent = methodChain.join(' → ');
         }
 
-        // Update progress bar and text
+        // Update progress bar and text (only move forward, never backward)
         if (update.progress !== undefined) {
-            progressBar.style.transition = 'width 0.5s ease-out';
-            progressBar.style.width = `${Math.min(update.progress, 100)}%`;
+            const newProgress = Math.max(lastProgressValue, Math.min(update.progress, 100));
+            if (newProgress > lastProgressValue) {
+                progressBar.style.transition = 'width 0.5s ease-out';
+                progressBar.style.width = `${newProgress}%`;
+                lastProgressValue = newProgress;
+            }
         }
         if (update.progressText) {
             progressText.textContent = update.progressText;
@@ -113,26 +116,40 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         if (data.layer !== undefined && data.total_layers && progressContainer) {
             // data.layer can be decimal (e.g., 2.3 = layer 2, 30% through methods)
             const progress = (data.layer / data.total_layers) * 100;
-            const currentLayer = Math.ceil(data.layer); // Round up for display
-            const progressTextValue = `${data.method} (Layer ${currentLayer}/${data.total_layers})`;
+
+            // Extract actual layer from virtual layer
+            // Virtual layer uses strategy_index * max_depth + iteration
+            // To get actual layer (1-6): take modulo and adjust
+            const maxDepth = 6;
+            let displayLayer = Math.ceil(data.layer);
+
+            // Try to extract layer from message text first (most accurate)
+            const layerMatch = data.method.match(/Layer (\d+)/);
+            if (layerMatch) {
+                displayLayer = parseInt(layerMatch[1]);
+            } else {
+                // For success messages without layer in text, calculate from virtual layer
+                // Subtract 1, take modulo max_depth, add 1 back
+                displayLayer = ((Math.ceil(data.layer) - 1) % maxDepth) + 1;
+            }
+
+            const progressTextValue = `${data.method} (${displayLayer}/${maxDepth})`;
 
             // Handle different update types
             if (data.method && data.method.includes('successful')) {
-                // Successful decode - queue with progress bar update
+                // Successful decode - queue with progress bar update (only if progress increases)
                 const methodName = data.method.replace('✓', '').replace('successful', '').trim();
-                updateQueue.push({
-                    type: 'success',
-                    methodName: methodName,
-                    progress: progress,
-                    progressText: progressTextValue
-                });
-                processUpdateQueue();
-            } else if (data.method && data.method.startsWith('Trying')) {
-                // Show trying immediately (no queue, no progress bar movement)
-                const attempting = data.method.replace('Trying', '').trim();
-                const chainText = methodChain.length > 0 ? methodChain.join(' → ') + ' → ' : '';
-                progressPreview.textContent = chainText + '⟳ ' + attempting + '...';
-                progressText.textContent = progressTextValue;
+
+                // Only queue if progress is moving forward
+                if (progress > lastProgressValue || updateQueue.length === 0) {
+                    updateQueue.push({
+                        type: 'success',
+                        methodName: methodName,
+                        progress: progress,
+                        progressText: `Layer ${displayLayer}/${maxDepth}`
+                    });
+                    processUpdateQueue();
+                }
             } else if (data.method === 'Complete') {
                 // Final completion
                 updateQueue.push({
@@ -142,6 +159,7 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
                 });
                 processUpdateQueue();
             }
+            // Note: No longer showing "Trying" messages - they caused progress bar jumps
         }
     };
 
@@ -181,36 +199,117 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         document.getElementById('stat-iocs').textContent = data.summary.iocs;
         document.getElementById('stat-techniques').textContent = data.summary.techniques;
 
-        // Populate Deobfuscation tab
-        if (data.deobfuscation_stats) {
-            displayDeobfuscation(data.deobfuscation_stats, data.deobfuscation_results);
+        // Check if all deobfuscation results failed
+        const allDeobfuscationFailed = data.deobfuscation_results &&
+                                       data.deobfuscation_results.length > 0 &&
+                                       data.deobfuscation_results.every(r => r.failed === true);
+
+        // Debug logging
+        console.log('Deobfuscation Results:', data.deobfuscation_results);
+        console.log('All Deobfuscation Failed:', allDeobfuscationFailed);
+        if (data.deobfuscation_results && data.deobfuscation_results.length > 0) {
+            console.log('First result failed status:', data.deobfuscation_results[0].failed);
+            console.log('First result failure_reason:', data.deobfuscation_results[0].failure_reason);
         }
 
-        // Populate IOCs tab
-        displayIOCs(data.iocs);
+        // Populate Deobfuscation tab
+        if (data.deobfuscation_stats) {
+            displayDeobfuscation(data.deobfuscation_stats, data.deobfuscation_results, allDeobfuscationFailed);
+        }
 
-        // Populate ATT&CK tab
-        displayAttackMapping(data.attack_mapping);
+        // Only populate other tabs if deobfuscation didn't completely fail
+        if (!allDeobfuscationFailed) {
+            // Populate IOCs tab
+            displayIOCs(data.iocs);
 
-        // Populate YARA tab
-        displayYaraRules(data.yara_rule, data.yara_ioc_rules);
+            // Populate ATT&CK tab
+            displayAttackMapping(data.attack_mapping);
 
-        // Populate Sigma tab
-        displaySigmaRules(data.sigma_rule, data.sigma_ioc_rules);
+            // Populate YARA tab
+            displayYaraRules(data.yara_rule, data.yara_ioc_rules);
 
-        // Populate Report tab
-        displayReport(data.markdown_report);
+            // Populate Sigma tab
+            displaySigmaRules(data.sigma_rule, data.sigma_ioc_rules);
+
+            // Populate Report tab
+            displayReport(data.markdown_report);
+        }
 
         // Wait for progress bar to complete before showing results
         const showResults = () => {
             loadingDiv.style.display = 'none';
-            if (progressContainer) {
-                // Fade out the progress bar after a delay
-                setTimeout(() => {
+
+            // For failures, hide progress immediately before showing failure message
+            // For success, hide progress with a delay for smooth transition
+            if (allDeobfuscationFailed) {
+                if (progressContainer) {
                     progressContainer.style.display = 'none';
-                }, 1500);
+                    console.log('Progress panel hidden immediately (failure case)');
+                }
+                // Small delay to let progress panel disappear, then prepare UI and show failure message
+                setTimeout(() => {
+                    console.log('Hiding UI elements due to complete deobfuscation failure');
+
+                    // Hide upload section
+                    const uploadSection = document.getElementById('upload-section');
+                    if (uploadSection) {
+                        uploadSection.style.display = 'none';
+                        console.log('Upload section hidden');
+                    }
+
+                    // Hide "Analysis Results" heading
+                    const resultsHeading = document.querySelector('#results > h2');
+                    if (resultsHeading) {
+                        resultsHeading.style.display = 'none';
+                        console.log('Analysis Results heading hidden');
+                    }
+
+                    // Hide "Deobfuscation Results" heading inside the tab
+                    const deobfHeading = document.querySelector('#deobfuscation-tab > h3');
+                    if (deobfHeading) {
+                        deobfHeading.style.display = 'none';
+                        console.log('Deobfuscation Results heading hidden');
+                    }
+
+                    // Hide summary cards and tab navigation
+                    const summaryCards = document.querySelector('.summary-cards');
+                    const tabs = document.querySelector('.tabs');
+                    if (summaryCards) {
+                        summaryCards.style.display = 'none';
+                        console.log('Summary cards hidden');
+                    }
+                    if (tabs) {
+                        tabs.style.display = 'none';
+                        console.log('Tab navigation hidden');
+                    }
+
+                    // Hide all tab content EXCEPT the deobfuscation tab
+                    const tabContents = document.querySelectorAll('.tab-content');
+                    tabContents.forEach(tab => {
+                        // Keep deobfuscation-tab visible, hide all others
+                        if (tab.id === 'deobfuscation-tab') {
+                            tab.style.display = 'block';
+                            console.log('Deobfuscation tab kept visible');
+                        } else {
+                            tab.style.display = 'none';
+                            console.log('Tab hidden:', tab.id);
+                        }
+                    });
+
+                    // Finally, show the failure message
+                    resultsDiv.style.display = 'block';
+                    console.log('Failure message displayed');
+                }, 300);
+            } else {
+                // Success case - show results and fade out progress bar
+                resultsDiv.style.display = 'block';
+                if (progressContainer) {
+                    // Fade out the progress bar after a delay
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                    }, 1500);
+                }
             }
-            resultsDiv.style.display = 'block';
         };
 
         // If progress hasn't completed yet, wait for it
@@ -230,12 +329,20 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
             setTimeout(showResults, 2000);
         }
 
-        // Hide upload form and show "New Analysis" button
+        // Hide upload form and conditionally show "New Analysis" button
         const uploadSection = document.getElementById('upload-section');
         const newAnalysisBtn = document.getElementById('new-analysis-btn');
         if (uploadSection && newAnalysisBtn) {
             uploadSection.style.display = 'none';
-            newAnalysisBtn.style.display = 'block';
+            // Only show "New Analysis" button if deobfuscation didn't completely fail
+            // (When it fails, we show "Try Another File" button in the failure message instead)
+            if (allDeobfuscationFailed) {
+                newAnalysisBtn.style.display = 'none';
+                console.log('New Analysis button hidden (deobfuscation failed)');
+            } else {
+                newAnalysisBtn.style.display = 'block';
+                console.log('New Analysis button shown');
+            }
         }
 
         // Scroll to results
@@ -257,11 +364,89 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
 });
 
 // Display Deobfuscation Results with checkboxes
-function displayDeobfuscation(stats, results) {
+function displayDeobfuscation(stats, results, allFailed = false) {
     const container = document.getElementById('deobfuscation-content');
     let html = '';
 
-    // Stats summary
+    console.log('displayDeobfuscation called with allFailed:', allFailed);
+    console.log('Results:', results);
+
+    // If all deobfuscation failed, show prominent failure message
+    if (allFailed) {
+        console.log('Rendering failure message...');
+
+        // Main failure message box
+        html += '<div class="failure-notice" style="background: rgba(231, 76, 60, 0.1); border: 2px solid #e74c3c; border-radius: 8px; padding: 30px; text-align: center; margin: 20px auto; max-width: 800px;">';
+        html += '<h2 style="color: #e74c3c; margin: 0 0 15px 0; font-size: 1.8em;">⚠️ Decoding Failed</h2>';
+        html += '<p style="font-size: 1.1em; margin-bottom: 20px; color: #ecf0f1;">All deobfuscation attempts produced garbled or low-quality output.</p>';
+
+        // Show failure reasons and attempted decoders
+        if (results && results.length > 0) {
+            try {
+                console.log('Processing failure reasons, results:', results);
+
+                const uniqueReasons = [...new Set(results.map(r => r.failure_reason).filter(r => r))];
+
+                // Collect all attempted methods from trace (more reliable than methods_used)
+                const allMethods = [];
+                results.forEach(r => {
+                    console.log('Result trace:', r.trace);
+                    console.log('Result methods_used:', r.methods_used);
+
+                    // Get methods from trace (shows what was actually attempted)
+                    if (r.trace && r.trace.length > 0) {
+                        r.trace.forEach(traceItem => {
+                            const [method, success, preview] = traceItem;
+                            if (success && method !== 'no_match' && method !== 'cycle' && method !== 'too_short' && method !== 'timeout' && method !== 'size_limit') {
+                                allMethods.push(method);
+                            }
+                        });
+                    }
+                });
+                const uniqueMethods = [...new Set(allMethods)];
+                console.log('Unique methods extracted:', uniqueMethods);
+
+                if (uniqueReasons.length > 0 || uniqueMethods.length > 0) {
+                    html += '<div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 4px; margin-bottom: 20px; text-align: left;">';
+
+                    // Show reasons (no bullets)
+                    if (uniqueReasons.length > 0) {
+                        html += '<div style="margin-bottom: 12px;">';
+                        html += '<strong style="color: #ecf0f1;">Reason:</strong><br>';
+                        html += '<span style="color: #ecf0f1; margin-left: 0;">' + escapeHtml(uniqueReasons[0]) + '</span>';
+                        html += '</div>';
+                    }
+
+                    // Show attempted decoders
+                    if (uniqueMethods.length > 0) {
+                        html += '<div>';
+                        html += '<strong style="color: #ecf0f1;">Decoders Attempted:</strong><br>';
+                        html += '<span style="color: #ecf0f1; margin-left: 0; font-family: monospace;">' + escapeHtml(uniqueMethods.join(', ')) + '</span>';
+                        html += '</div>';
+                    } else {
+                        console.warn('No decoders found in trace');
+                    }
+
+                    html += '</div>';
+                }
+            } catch (e) {
+                console.error('Error rendering failure reasons:', e);
+            }
+        }
+
+        // Buttons
+        html += '<div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">';
+        html += '<button onclick="resetForNewAnalysis()" class="btn-primary" style="font-size: 1.1em; padding: 15px 30px;">📁 Try Another File</button>';
+        html += '<button onclick="showFailedResults()" class="btn-secondary" style="font-size: 1.0em; padding: 15px 30px;">🔍 Show Failed Results</button>';
+        html += '</div>';
+        html += '</div>'; // Close failure notice
+
+        // Collapsed failed results section
+        html += '<div id="failed-results-section" style="display: none; margin-top: 20px;">';
+        html += '<h3 style="color: #e74c3c;">Failed Decoding Attempts</h3>';
+    }
+
+    // Stats summary (show for both success and failure, but collapsed if all failed)
     html += '<div class="deobf-stats">';
     html += '<h4>◈ Summary</h4>';
     html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
@@ -305,10 +490,29 @@ function displayDeobfuscation(stats, results) {
             if (result.decoded && result.decoded.length > 0) {
                 const finalDecoded = result.decoded[result.decoded.length - 1];
                 const finalDisplay = finalDecoded.length > 200 ? finalDecoded.substring(0, 200) + '...' : finalDecoded;
-                html += '<div class="final-result">';
-                html += '<div class="layer-label">✓ Final Decoded Result:</div>';
-                html += '<code>' + escapeHtml(finalDisplay) + '</code>';
-                html += '</div>';
+
+                if (result.failed) {
+                    // Show warning for failed deobfuscation
+                    html += '<div class="final-result" style="border-left: 4px solid #e74c3c; background: rgba(231, 76, 60, 0.05);">';
+                    html += '<div class="layer-label" style="color: #e74c3c;">⚠️ Final Output (Likely Garbled):</div>';
+                    html += '<code>' + escapeHtml(finalDisplay) + '</code>';
+                    html += '<div style="color: #e74c3c; font-size: 0.9em; margin-top: 8px; padding: 8px; background: rgba(231, 76, 60, 0.1); border-radius: 4px;">';
+                    html += '⚠️ <strong>Warning:</strong> ' + escapeHtml(result.failure_reason || 'Output appears to be garbled or incorrectly decoded');
+                    html += '<br><small>Quality Score: ' + (result.quality_score || 0).toFixed(2) + ' / 1.00</small>';
+                    html += '</div>';
+                    html += '</div>';
+                } else {
+                    // Show success for good deobfuscation
+                    html += '<div class="final-result">';
+                    html += '<div class="layer-label">✓ Final Decoded Result:</div>';
+                    html += '<code>' + escapeHtml(finalDisplay) + '</code>';
+                    if (result.quality_score !== undefined) {
+                        html += '<div style="color: var(--accent-green); font-size: 0.85em; margin-top: 5px;">';
+                        html += '✓ Quality Score: ' + result.quality_score.toFixed(2) + ' / 1.00';
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                }
             }
 
             // Detailed layers (collapsed by default)
@@ -348,7 +552,24 @@ function displayDeobfuscation(stats, results) {
         html += '<p>No encoded strings detected.</p>';
     }
 
+    // Close failed results section if it was opened
+    if (allFailed) {
+        html += '</div>'; // Close failed-results-section
+    }
+
     container.innerHTML = html;
+}
+
+// Show/hide failed results section
+function showFailedResults() {
+    const section = document.getElementById('failed-results-section');
+    if (section) {
+        if (section.style.display === 'none') {
+            section.style.display = 'block';
+        } else {
+            section.style.display = 'none';
+        }
+    }
 }
 
 // Toggle deobfuscation details
@@ -870,13 +1091,43 @@ function generateDecodedDetail() {
     currentResults.deobfuscation_results.forEach((result, index) => {
         html += `<div class="deobf-detail-item">`;
         html += `<h3>🔐 Encoded String #${index + 1}</h3>`;
-        
+
+        // Show failure message if deobfuscation failed
+        if (result.failed) {
+            html += '<div class="detail-subsection failure-notice">';
+            html += '<h4>⚠️ Deobfuscation Failed</h4>';
+            html += `<p class="failure-message"><strong>Reason:</strong> ${escapeHtml(result.failure_reason || 'Unknown error')}</p>`;
+            if (result.quality_score !== undefined) {
+                html += `<p><strong>Quality Score:</strong> ${result.quality_score.toFixed(2)} / 1.00</p>`;
+            }
+            if (result.strategy_used) {
+                html += `<p><strong>Strategy Used:</strong> ${escapeHtml(result.strategy_used)}</p>`;
+            }
+            if (result.strategies_attempted && result.strategies_attempted.length > 1) {
+                html += `<p><strong>Strategies Attempted:</strong> ${result.strategies_attempted.join(', ')}</p>`;
+            }
+            html += '</div>';
+        } else {
+            // Show success info
+            if (result.quality_score !== undefined || result.strategy_used) {
+                html += '<div class="detail-subsection success-notice">';
+                html += '<h4>✓ Deobfuscation Success</h4>';
+                if (result.quality_score !== undefined) {
+                    html += `<p><strong>Quality Score:</strong> ${result.quality_score.toFixed(2)} / 1.00</p>`;
+                }
+                if (result.strategy_used) {
+                    html += `<p><strong>Strategy Used:</strong> ${escapeHtml(result.strategy_used)}</p>`;
+                }
+                html += '</div>';
+            }
+        }
+
         // Show original
         html += '<div class="detail-subsection">';
         html += '<h4>Original (Encoded):</h4>';
         html += `<pre class="encoded-preview">${escapeHtml(result.original.substring(0, 100))}${result.original.length > 100 ? '...' : ''}</pre>`;
         html += '</div>';
-        
+
         // Show trace
         if (result.trace && result.trace.length > 0) {
             html += '<div class="detail-subsection">';
@@ -899,11 +1150,17 @@ function generateDecodedDetail() {
             html += '</div>';
         }
         
-        // Show final plaintext
+        // Show final plaintext (or failure warning)
         if (result.decoded && result.decoded.length > 0) {
             html += '<div class="detail-subsection">';
-            html += '<h4>📋 Final Plaintext:</h4>';
-            html += `<pre class="plaintext-result">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
+            if (result.failed) {
+                html += '<h4>⚠️ Final Output (Likely Garbled/Incorrect):</h4>';
+                html += `<pre class="plaintext-result" style="border-left: 4px solid #e74c3c; background: rgba(231, 76, 60, 0.05);">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
+                html += '<p style="color: #e74c3c; margin-top: 10px;">⚠️ This output appears to be garbled or incorrectly decoded. Consider enabling Smart Mode for better results.</p>';
+            } else {
+                html += '<h4>✓ Final Plaintext:</h4>';
+                html += `<pre class="plaintext-result">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
+            }
             html += '</div>';
         }
         
@@ -1061,6 +1318,20 @@ function resetForNewAnalysis() {
 
     // Show upload section
     document.getElementById('upload-section').style.display = 'block';
+
+    // Restore "Analysis Results" heading
+    const resultsHeading = document.querySelector('#results > h2');
+    if (resultsHeading) resultsHeading.style.display = 'block';
+
+    // Restore "Deobfuscation Results" heading
+    const deobfHeading = document.querySelector('#deobfuscation-tab > h3');
+    if (deobfHeading) deobfHeading.style.display = 'block';
+
+    // Restore tabs and summary cards (in case they were hidden due to failure)
+    const summaryCards = document.querySelector('.summary-cards');
+    const tabs = document.querySelector('.tabs');
+    if (summaryCards) summaryCards.style.display = 'grid';
+    if (tabs) tabs.style.display = 'flex';
 
     // Reset form
     document.getElementById('upload-form').reset();

@@ -1,5 +1,5 @@
 """
-Deobfuscation Module v1.1
+Deobfuscation Module v1.2 (Modular)
 Automatically decodes/deobfuscates common encoding schemes found in malware
 
 Handles:
@@ -24,18 +24,21 @@ Features:
 - Input size limits (1 MiB default)
 - Quality tracking to prevent degradation
 - Detailed audit trail with method and preview for each layer
+- Modular decoder architecture for maintainability
+
+Architecture:
+- Uses pluggable decoder modules from deobfuscation/ package
+- Each decoder implements BaseDecoder interface
+- Decoders are self-contained and independently testable
 """
 
-import base64
-import re
-import urllib.parse
-import gzip
-import zlib
-import bz2
 import time
 import hashlib
 from typing import List, Tuple, Set, Callable, Optional
 from dataclasses import dataclass, field
+
+# Import modular decoders
+from .deobfuscation import get_all_decoders
 
 
 @dataclass
@@ -52,6 +55,8 @@ class DeobfuscationConfig:
     xor_aggressive_bruteforce: bool = False
     min_output_length: int = 2
     speculative_rot13: bool = False  # Try ROT13 even without keyword matches (experimental, can cause false positives)
+    smart_mode: bool = False  # DEPRECATED: Smart mode now runs automatically as fallback when default fails
+    smart_mode_timeout_multiplier: float = 3.0  # DEPRECATED: No longer used (smart mode is automatic fallback)
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None  # callback(method, layer, total_layers, preview)
 
 
@@ -65,6 +70,11 @@ class DeobfuscationResult:
     suspicious_patterns: List[str] = field(default_factory=list)
     trace: List[Tuple[str, bool, str]] = field(default_factory=list)  # (method, success, preview)
     timed_out: bool = False
+    failed: bool = False  # True if deobfuscation produced low-quality or mangled output
+    failure_reason: str = ""  # Human-readable explanation of why deobfuscation failed
+    quality_score: float = 0.0  # Overall quality score of final result (0.0 - 1.0)
+    strategy_used: str = "default"  # Which decoder ordering strategy succeeded
+    strategies_attempted: List[str] = field(default_factory=list)  # All strategies tried
 
     def get_all_strings(self) -> List[str]:
         """Get both original and deobfuscated strings"""
@@ -81,10 +91,16 @@ class Deobfuscator:
     def __init__(self, config: DeobfuscationConfig = None):
         """Initialize deobfuscator with configuration"""
         self.config = config if config else DeobfuscationConfig()
+        
+        # Initialize modular decoders
+        self.decoders = get_all_decoders(self.config)
 
     def deobfuscate_string(self, text: str) -> DeobfuscationResult:
         """
         Attempt to deobfuscate a single string using multiple methods
+
+        First tries default decoder ordering. If that fails, automatically
+        falls back to smart mode (trying multiple decoder orderings).
 
         Args:
             text: Input string (potentially obfuscated)
@@ -92,115 +108,85 @@ class Deobfuscator:
         Returns:
             DeobfuscationResult with original and deobfuscated versions
         """
-        result = DeobfuscationResult(original=text)
         start_time = time.time()
 
-        # Check size limit
+        # Size limit check
         if len(text.encode('utf-8', errors='ignore')) > self.config.max_input_bytes:
+            result = DeobfuscationResult(original=text)
             result.trace.append(('size_limit', False, f'Input too large'))
+            result.failed = True
+            result.failure_reason = "Input exceeds size limit"
             return result
 
-        current = text
-        visited_hashes = set()
-        current_hash = hashlib.sha1(current.encode('utf-8', errors='surrogateescape')).hexdigest()
-        visited_hashes.add(current_hash)
+        # Step 1: Try default strategy first (fast path)
+        # Calculate total strategies for smooth progress (default + alternatives)
+        all_strategies = self._get_decoder_strategies()
+        total_strategies = len(all_strategies)
 
-        previous_quality = self._calculate_quality(current)
+        result = self._try_single_strategy(text, "default", self.decoders, start_time,
+                                           strategy_index=0, total_strategies=total_strategies)
+        result.strategies_attempted.append("default")
 
-        for iteration in range(self.config.max_depth):
-            # Check timeout
-            if time.time() - start_time > self.config.per_string_timeout_secs:
-                result.timed_out = True
-                result.trace.append(('timeout', False, f'Timeout after {iteration} layers'))
-                break
+        # Step 2: If default failed, automatically try smart mode as fallback
+        if result.failed:
+            smart_results = []
 
-            # Marker-based plaintext detection (PRIORITY)
-            # Check even on iteration 0 in case we already have plaintext after first decode
-            if self._check_plaintext_markers(current):
-                if iteration > 0:  # Only stop if we've done at least one decode
-                    # Don't add trace entry - marker detection is a stopping condition, not a decode layer
-                    break
-
-            decoded_this_round = False
-
-            # Try each deobfuscation method in order
-            methods = [
-                ('hex', self._try_hex),
-                ('utf16le', self._try_utf16le),
-                ('rot13', self._try_rot13),
-                ('base64', self._try_base64),
-                ('powershell_base64', self._try_powershell_base64),
-                ('url_encoding', self._try_url_decode),
-                ('char_codes', self._try_char_codes),
-            ]
-
-            # Add XOR methods last (if enabled)
-            # Single-byte XOR first (more common), then multi-byte
-            if self.config.xor_enabled:
-                methods.append(('xor', self._try_xor))
-                methods.append(('xor_multibyte', self._try_xor_multibyte))
-
-            for method_idx, (method_name, method_func) in enumerate(methods):
-                try:
-                    # Progress callback: attempting method
-                    # Calculate granular progress: layer progress + method progress within layer
-                    if self.config.progress_callback:
-                        preview = current[:60] if len(current) > 60 else current
-                        # Progress includes partial completion within the current layer
-                        method_progress = method_idx / len(methods)  # 0.0 to 1.0 within this layer
-                        self.config.progress_callback(
-                            f"Trying {method_name}",
-                            iteration + method_progress,  # e.g., 2.3 means layer 2, 30% through methods
-                            self.config.max_depth,
-                            preview
-                        )
-
-                    decoded = method_func(current)
-
-                    if decoded and decoded != current:
-                        # Check for cycles
-                        decoded_hash = hashlib.sha1(decoded.encode('utf-8', errors='surrogateescape')).hexdigest()
-
-                        if decoded_hash in visited_hashes:
-                            result.trace.append(('cycle', False, f'Skipping {method_name} - already seen'))
-                            continue
-
-                        # Quality check
-                        current_quality = self._calculate_quality(decoded)
-
-                        if len(decoded) < 10 and iteration > 0:
-                            result.trace.append(('too_short', False, f'Output too short: {len(decoded)} chars'))
-                            break
-
-                        # Success!
-                        preview = decoded[:120] if len(decoded) > 120 else decoded
-                        result.trace.append((method_name, True, preview))
-                        result.deobfuscated.append(decoded)
-                        result.methods_used.append(f"{method_name} (layer {iteration + 1})")
-                        result.layers_decoded = iteration + 1
-                        visited_hashes.add(decoded_hash)
-                        previous_quality = current_quality
-                        current = decoded
-                        decoded_this_round = True
-
-                        # Progress callback: success
-                        if self.config.progress_callback:
-                            self.config.progress_callback(
-                                f"✓ {method_name} successful",
-                                iteration + 1,
-                                self.config.max_depth,
-                                preview
-                            )
-
-                        break
-
-                except Exception:
+            # Try each alternative strategy (stop early if one succeeds)
+            strategy_idx = 0
+            for strategy_name, decoders in all_strategies:
+                # Skip default since we already tried it
+                if strategy_name == "default":
+                    strategy_idx += 1
                     continue
 
-            if not decoded_this_round:
-                result.trace.append(('no_match', False, current[:80]))
-                break
+                strategy_result = self._try_single_strategy(text, strategy_name, decoders, start_time,
+                                                           strategy_index=strategy_idx,
+                                                           total_strategies=total_strategies)
+                strategy_result.strategies_attempted.append(strategy_name)
+                smart_results.append(strategy_result)
+                strategy_idx += 1
 
+                # Early termination: if this strategy succeeded, no need to try others
+                if not strategy_result.failed and not strategy_result.timed_out:
+                    break
+
+            # Pick the best result from smart mode attempts
+            best_smart_result = None
+            best_score = -1.0
+
+            for r in smart_results:
+                # Prioritize valid results
+                if not r.failed and not r.timed_out:
+                    # Score = quality * layers (prefer deeper decoding with good quality)
+                    score = r.quality_score * (1 + r.layers_decoded * 0.1)
+                    if score > best_score:
+                        best_score = score
+                        best_smart_result = r
+
+            # If smart mode found a better result, use it
+            if best_smart_result and not best_smart_result.failed:
+                # Prepend "default" to show it was attempted first
+                best_smart_result.strategies_attempted = ["default"] + best_smart_result.strategies_attempted
+                return best_smart_result
+
+            # If smart mode also failed, pick the one with highest quality score
+            if smart_results:
+                best_fallback = max(smart_results, key=lambda r: r.quality_score)
+                if best_fallback.quality_score > result.quality_score:
+                    # Update failure reason to indicate all strategies failed
+                    all_strategies = [r.strategy_used for r in smart_results]
+                    best_fallback.strategies_attempted = ["default"] + all_strategies
+                    if not best_fallback.failure_reason:
+                        best_fallback.failure_reason = f"All {len(smart_results) + 1} strategies failed to produce valid output"
+                    return best_fallback
+                else:
+                    # All strategies failed and none better than default - update default result to show all attempts
+                    all_strategies = [r.strategy_used for r in smart_results]
+                    result.strategies_attempted = ["default"] + all_strategies
+                    if not result.failure_reason:
+                        result.failure_reason = f"All {len(smart_results) + 1} strategies failed to produce valid output"
+
+        # Return default result (success or failure)
         return result
 
     def _check_plaintext_markers(self, text: str) -> bool:
@@ -220,15 +206,28 @@ class Deobfuscator:
         ]
 
         text_lower = text.lower()
-        # Check for markers with flexible matching (allows for minor XOR corruption)
+
+        # Check for exact marker matches first (with colon/hyphen)
         for marker in MARKERS:
             marker_lower = marker.lower()
-            # Remove special chars for matching
+            if marker_lower in text_lower[:100]:
+                return True
+
+        # Only check cleaned markers if text doesn't look like base64
+        # This prevents false positives like 'log' in base64 strings
+        if len(text) >= 20:
+            base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+            base64_ratio = sum(1 for c in text[:100] if c in base64_chars) / min(100, len(text))
+            if base64_ratio > 0.90:  # 90%+ base64 chars
+                return False  # Skip cleaned matching for base64 strings
+
+        # Check cleaned versions (without colon/hyphen) for XOR-corrupted markers
+        for marker in MARKERS:
+            marker_lower = marker.lower()
             marker_clean = marker_lower.replace(':', '').replace('-', '')
             text_clean = text_lower[:100].replace(':', '').replace('-', '')
 
-            # Check both exact and cleaned versions
-            if marker_lower in text_lower[:100] or marker_clean in text_clean:
+            if marker_clean in text_clean:
                 return True
 
         return False
@@ -261,402 +260,349 @@ class Deobfuscator:
 
         return min(score, 10.0)
 
-    def _printable_ratio(self, data: bytes) -> float:
-        """Calculate ratio of printable characters"""
-        if not data:
-            return 0.0
+    def _get_decoder_strategies(self) -> List[Tuple[str, List]]:
+        """
+        Get alternative decoder ordering strategies for smart mode
 
-        printable = sum(1 for b in data if 32 <= b <= 126 or b in [9, 10, 13])
-        return printable / len(data)
+        Returns:
+            List of (strategy_name, decoder_list) tuples
+        """
+        from .deobfuscation import (
+            HexDecoder, UTF16LEDecoder, ROT13Decoder, Base64Decoder,
+            PowerShellBase64Decoder, URLDecoder, CharCodesDecoder,
+            XORDecoder, MultiByteXORDecoder
+        )
 
-    def _try_base64(self, text: str) -> str:
-        """Try Base64 decoding with noise filtering and padding normalization"""
-        try:
-            cleaned = re.sub(r'\s', '', text)
+        strategies = []
 
-            # Remove invalid Base64 characters (noise injection)
-            cleaned = ''.join(c for c in cleaned if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+        # Strategy 1: Default order (hex → utf16le → rot13 → base64 → ps → url → xor)
+        default_decoders = [
+            HexDecoder(self.config),
+            UTF16LEDecoder(self.config),
+            ROT13Decoder(self.config),
+            Base64Decoder(self.config),
+            PowerShellBase64Decoder(self.config),
+            URLDecoder(self.config),
+            CharCodesDecoder(self.config),
+        ]
+        if self.config.xor_enabled:
+            default_decoders.extend([
+                XORDecoder(self.config),
+                MultiByteXORDecoder(self.config),
+            ])
+        strategies.append(("default", default_decoders))
 
-            # Fix misplaced padding ONLY if = appears in the middle
-            if '=' in cleaned:
-                first_padding_idx = cleaned.index('=')
-                if first_padding_idx < len(cleaned) - 2 or '=' in cleaned[:-2]:
-                    # Remove all = and re-add proper padding at the end
-                    cleaned_no_padding = cleaned.replace('=', '')
-                    padding_needed = (4 - len(cleaned_no_padding) % 4) % 4
-                    cleaned = cleaned_no_padding + ('=' * padding_needed)
+        # Strategy 2: Base64-first (for heavily base64-encoded content)
+        base64_first = [
+            Base64Decoder(self.config),
+            HexDecoder(self.config),
+            UTF16LEDecoder(self.config),
+            ROT13Decoder(self.config),
+            PowerShellBase64Decoder(self.config),
+            URLDecoder(self.config),
+            CharCodesDecoder(self.config),
+        ]
+        if self.config.xor_enabled:
+            base64_first.extend([
+                XORDecoder(self.config),
+                MultiByteXORDecoder(self.config),
+            ])
+        strategies.append(("base64_first", base64_first))
 
-            # Skip if looks like hex
-            if len(cleaned) >= 20 and len(cleaned) % 2 == 0:
-                if all(c in '0123456789abcdefABCDEF' for c in cleaned[:100]):
-                    return ""
-
-            decoded_bytes = base64.b64decode(cleaned)
-
-            # Check for compression after Base64
-            if len(decoded_bytes) >= 2 and decoded_bytes[:2] == b'\x1f\x8b':
-                return self._try_gzip(decoded_bytes)
-
-            if len(decoded_bytes) >= 2 and decoded_bytes[0] == 0x78:
-                zlib_result = self._try_zlib(decoded_bytes)
-                if zlib_result:
-                    return zlib_result
-
-            if len(decoded_bytes) >= 4 and decoded_bytes[:3] == b'BZh':
-                bz2_result = self._try_bzip2(decoded_bytes)
-                if bz2_result:
-                    return bz2_result
-
-            # Try UTF-8 first
-            try:
-                decoded = decoded_bytes.decode('utf-8')
-                if len(decoded) > 0:
-                    printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                    if printable_ratio > 0.7:
-                        return decoded
-            except UnicodeDecodeError:
-                pass
-
-            # Fallback to latin-1 to preserve binary data
-            decoded = decoded_bytes.decode('latin-1')
-            if len(decoded) > 0:
-                return decoded
-
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_hex(self, text: str) -> str:
-        """Try hexadecimal decoding"""
-        try:
-            cleaned = text.replace(' ', '').replace('0x', '').replace('\\x', '')
-
-            if len(cleaned) < 10 or len(cleaned) % 2 != 0:
-                return ""
-
-            if not all(c in '0123456789abcdefABCDEF' for c in cleaned):
-                return ""
-
-            decoded_bytes = bytes.fromhex(cleaned)
-
-            # Check for compression
-            if len(decoded_bytes) >= 2 and decoded_bytes[:2] == b'\x1f\x8b':
-                return self._try_gzip(decoded_bytes)
-
-            if len(decoded_bytes) >= 2 and decoded_bytes[0] == 0x78:
-                zlib_result = self._try_zlib(decoded_bytes)
-                if zlib_result:
-                    return zlib_result
-
-            # Try UTF-8
-            try:
-                decoded = decoded_bytes.decode('utf-8')
-                if len(decoded) > 3:
-                    printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                    if printable_ratio > 0.6:
-                        return decoded
-            except UnicodeDecodeError:
-                pass
-
-            # Fallback to latin-1
-            decoded = decoded_bytes.decode('latin-1')
-            if len(decoded) > 3:
-                return decoded
-
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_gzip(self, data: bytes) -> str:
-        """Try GZIP decompression"""
-        try:
-            if len(data) < 2 or data[:2] != b'\x1f\x8b':
-                return ""
-
-            decompressed = gzip.decompress(data)
-            decoded = decompressed.decode('utf-8', errors='ignore')
-
-            if decoded and len(decoded) > 0:
-                printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                if printable_ratio > 0.6:
-                    return decoded
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_zlib(self, data: bytes) -> str:
-        """Try zlib decompression"""
-        try:
-            if len(data) < 2 or data[0] != 0x78:
-                return ""
-
-            if data[1] not in [0x01, 0x5E, 0x9C, 0xDA]:
-                return ""
-
-            decompressed = zlib.decompress(data)
-            decoded = decompressed.decode('utf-8', errors='ignore')
-
-            if decoded and len(decoded) > 0:
-                printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                if printable_ratio > 0.6:
-                    return decoded
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_bzip2(self, data: bytes) -> str:
-        """Try bzip2 decompression"""
-        try:
-            if len(data) < 4 or data[:3] != b'BZh':
-                return ""
-
-            if not (0x31 <= data[3] <= 0x39):
-                return ""
-
-            decompressed = bz2.decompress(data)
-            decoded = decompressed.decode('utf-8', errors='ignore')
-
-            if decoded and len(decoded) > 0:
-                printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                if printable_ratio > 0.6:
-                    return decoded
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_utf16le(self, text: str) -> str:
-        """Try UTF-16LE decoding"""
-        try:
-            data_bytes = text.encode('latin-1', errors='ignore')
-
-            if len(data_bytes) < 4 or len(data_bytes) % 2 != 0:
-                return ""
-
-            # Check for null bytes pattern
-            null_count = sum(1 for i in range(1, min(100, len(data_bytes)), 2) if data_bytes[i] == 0x00)
-            if null_count > 10:
-                decoded = data_bytes.decode('utf-16le', errors='ignore')
-                if decoded and len(decoded) > 0:
-                    printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                    if printable_ratio > 0.7:
-                        return decoded
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_rot13(self, text: str) -> str:
-        """Try ROT13 decoding"""
-        try:
-            import codecs
-
-            # Don't trigger on Base64 (lots of +/= chars)
-            base64_chars = text.count('+') + text.count('/') + text.count('=')
-            if base64_chars > len(text) * 0.05:
-                return ""
-
-            decoded = codecs.decode(text, 'rot13')
-
-            # Check for common words or markers
-            common_words = [
-                'http', 'www', 'exe', 'dll', 'cmd', 'powershell', 'script',
-                'user', 'config', 'token', 'shell', 'alert', 'process',
-                'mail', 'from', 'subject', 'message', 'email', 'sender',
-                'recipient', 'attacker', 'example', 'update', 'urgent'
+        # Strategy 3: XOR-first (for XOR before base64 cases)
+        if self.config.xor_enabled:
+            xor_first = [
+                XORDecoder(self.config),
+                MultiByteXORDecoder(self.config),
+                Base64Decoder(self.config),
+                HexDecoder(self.config),
+                UTF16LEDecoder(self.config),
+                ROT13Decoder(self.config),
+                PowerShellBase64Decoder(self.config),
+                URLDecoder(self.config),
+                CharCodesDecoder(self.config),
             ]
-            if any(word in decoded.lower() for word in common_words):
-                return decoded
+            strategies.append(("xor_first", xor_first))
 
-            # Speculative ROT13: If enabled, also check if output looks like it could be further decoded
-            if self.config.speculative_rot13 and len(decoded) >= 20:
-                # Check if decoded output looks like valid Base64
-                base64_alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-                base64_ratio = sum(1 for c in decoded if c in base64_alphabet) / len(decoded)
+        # Strategy 4: ROT13-first (for ROT13 before base64 cases)
+        rot13_first = [
+            ROT13Decoder(self.config),
+            Base64Decoder(self.config),
+            HexDecoder(self.config),
+            UTF16LEDecoder(self.config),
+            PowerShellBase64Decoder(self.config),
+            URLDecoder(self.config),
+            CharCodesDecoder(self.config),
+        ]
+        if self.config.xor_enabled:
+            rot13_first.extend([
+                XORDecoder(self.config),
+                MultiByteXORDecoder(self.config),
+            ])
+        strategies.append(("rot13_first", rot13_first))
 
-                if base64_ratio > 0.90:  # 90% Base64 characters
-                    # Verify it can actually be decoded as Base64
-                    try:
-                        cleaned = ''.join(c for c in decoded if c in base64_alphabet)
-                        test_decode = base64.b64decode(cleaned)
-                        if len(test_decode) >= 10:  # Non-trivial output
-                            return decoded
-                    except:
-                        pass
+        # Strategy 5: Skip base64 initially (avoid greedy base64 matching)
+        skip_base64 = [
+            HexDecoder(self.config),
+            UTF16LEDecoder(self.config),
+            ROT13Decoder(self.config),
+            URLDecoder(self.config),
+            CharCodesDecoder(self.config),
+        ]
+        if self.config.xor_enabled:
+            skip_base64.extend([
+                XORDecoder(self.config),
+                MultiByteXORDecoder(self.config),
+            ])
+        skip_base64.append(Base64Decoder(self.config))  # Add base64 at the end
+        skip_base64.append(PowerShellBase64Decoder(self.config))
+        strategies.append(("skip_base64_initially", skip_base64))
 
-                # Check if output looks like hex-encoded data
-                if len(decoded) % 2 == 0:
-                    hex_chars = sum(1 for c in decoded if c in '0123456789abcdefABCDEF')
-                    if hex_chars / len(decoded) > 0.95:
-                        try:
-                            test_hex = bytes.fromhex(decoded)
-                            if len(test_hex) >= 10:
-                                return decoded
-                        except:
-                            pass
-
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_url_decode(self, text: str) -> str:
-        """Try URL decoding"""
-        try:
-            decoded = urllib.parse.unquote(text)
-            if decoded != text and len(decoded) > 0:
-                return decoded
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_powershell_base64(self, text: str) -> str:
-        """Try PowerShell UTF-16LE Base64"""
-        try:
-            cleaned = re.sub(r'\s', '', text)
-            decoded_bytes = base64.b64decode(cleaned)
-            decoded = decoded_bytes.decode('utf-16-le', errors='ignore')
-
-            if decoded and len(decoded) > 0:
-                printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in decoded) / len(decoded)
-                if printable_ratio > 0.7:
-                    return decoded
-        except Exception:
-            pass
-
-        return ""
-
-    def _try_char_codes(self, text: str) -> str:
-        """Try decoding character codes"""
-        # Placeholder for character code decoding
-        return ""
-
-    def _try_xor(self, text: str) -> str:
-        """Try single-byte XOR decoding"""
-        try:
-            # Skip if looks like hex
-            if len(text) >= 20 and len(text) % 2 == 0:
-                if all(c in '0123456789abcdefABCDEF' for c in text[:100]):
-                    return ""
-
-            # Skip if looks like valid Base64 (let Base64 decoder handle it)
-            # Even if Base64 decode fails, if it looks like Base64, let the Base64 method try
-            if len(text) >= 20:
-                base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-                base64_ratio = sum(1 for c in text if c in base64_chars) / len(text)
-                if base64_ratio > 0.95:  # 95% Base64 characters - likely Base64
-                    return ""  # Let Base64 decoder handle it (even if corrupted)
-
-            try:
-                data = text.encode('latin-1')
-            except UnicodeEncodeError:
-                data = text.encode('utf-8', errors='surrogateescape')
-
-            best_result = ""
-            best_score = 0.0
-
-            for key in self.config.xor_common_keys:
-                xor_bytes = bytes([byte ^ key for byte in data])
-
-                # Check for compression
-                if len(xor_bytes) >= 2 and xor_bytes[:2] == b'\x1f\x8b':
-                    gzip_result = self._try_gzip(xor_bytes)
-                    if gzip_result:
-                        return gzip_result
-
-                if len(xor_bytes) >= 2 and xor_bytes[0] == 0x78:
-                    zlib_result = self._try_zlib(xor_bytes)
-                    if zlib_result:
-                        return zlib_result
-
-                printable_ratio = self._printable_ratio(xor_bytes)
-                if printable_ratio < 0.6:
-                    continue
-
-                try:
-                    decoded = xor_bytes.decode('utf-8', errors='ignore')
-                except:
-                    continue
-
-                score = self._english_score(decoded) + (printable_ratio * 2)
-
-                if score > best_score and decoded:
-                    best_score = score
-                    best_result = decoded
-
-            return best_result
-
-        except Exception:
-            return ""
-
-    def _try_xor_multibyte(self, text: str) -> str:
-        """Try multi-byte XOR decoding"""
-        try:
-            # Skip if looks like valid Base64 (let Base64 decoder handle it)
-            # Even if Base64 decode fails, if it looks like Base64, let the Base64 method try
-            if len(text) >= 20:
-                base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-                base64_ratio = sum(1 for c in text if c in base64_chars) / len(text)
-                if base64_ratio > 0.95:  # 95% Base64 characters - likely Base64
-                    return ""  # Let Base64 decoder handle it (even if corrupted)
-
-            try:
-                data = text.encode('latin-1')
-            except UnicodeEncodeError:
-                data = text.encode('utf-8', errors='surrogateescape')
-
-            multibyte_keys = [
-                bytes([0xAB, 0xCD]),
-                bytes([0x12, 0x34]),
-                bytes([0xFF, 0xFF]),
-                bytes([0x00, 0xFF]),
-                bytes([0xDE, 0xAD, 0xBE]),
-                bytes([0xCA, 0xFE, 0xBA]),
-                bytes([0xDE, 0xAD, 0xBE, 0xEF]),
-                bytes([0xCA, 0xFE, 0xBA, 0xBE]),
+        # Strategy 6: Hex then XOR priority (for hex-encoded XOR chains)
+        if self.config.xor_enabled:
+            hex_xor_first = [
+                HexDecoder(self.config),
+                XORDecoder(self.config),
+                MultiByteXORDecoder(self.config),
+                Base64Decoder(self.config),
+                UTF16LEDecoder(self.config),
+                ROT13Decoder(self.config),
+                PowerShellBase64Decoder(self.config),
+                URLDecoder(self.config),
+                CharCodesDecoder(self.config),
             ]
+            strategies.append(("hex_xor_first", hex_xor_first))
 
-            best_result = ""
-            best_score = 0.0
+        return strategies
 
-            for key_bytes in multibyte_keys:
-                xor_bytes = bytes([data[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(data))])
+    def _validate_result_quality(self, result: DeobfuscationResult, text: str) -> Tuple[bool, str, float]:
+        """
+        Validate if deobfuscation result is good or mangled
 
-                # Check for compression
-                if len(xor_bytes) >= 2 and xor_bytes[:2] == b'\x1f\x8b':
-                    gzip_result = self._try_gzip(xor_bytes)
-                    if gzip_result:
-                        return gzip_result
+        NEW STRATEGY: Check final result first, then fall back to intermediate results
+        if final result is garbage. This prevents regressions while fixing over-decoding.
 
-                if len(xor_bytes) >= 2 and xor_bytes[0] == 0x78:
-                    zlib_result = self._try_zlib(xor_bytes)
-                    if zlib_result:
-                        return zlib_result
+        Args:
+            result: DeobfuscationResult to validate
+            text: Original input text
 
-                printable_ratio = self._printable_ratio(xor_bytes)
-                if printable_ratio < 0.6:
+        Returns:
+            Tuple of (is_valid, failure_reason, quality_score)
+        """
+        # If no decoding happened, check if input was already plaintext
+        if result.layers_decoded == 0:
+            quality = self._calculate_quality(text)
+            if quality < 0.3:
+                return False, "No decoding performed and input appears to be binary/encoded", quality
+            return True, "", quality
+
+        # STEP 1: Check final result first (original behavior)
+        final_output = result.deobfuscated[-1] if result.deobfuscated else text
+        quality = self._calculate_quality(final_output)
+
+        # Check if final result is clearly good (high quality, no red flags)
+        is_final_good = True
+        final_failure_reason = ""
+
+        # Check for mangled output indicators
+        if len(final_output) < 4:
+            is_final_good = False
+            final_failure_reason = "Output too short"
+        elif quality < 0.45:
+            is_final_good = False
+            final_failure_reason = f"Low quality score ({quality:.2f})"
+        elif len(final_output) > 20:
+            null_ratio = final_output.count('\x00') / len(final_output)
+            if null_ratio > 0.3:
+                is_final_good = False
+                final_failure_reason = f"High null byte ratio ({null_ratio:.1%})"
+
+            non_ascii_count = sum(1 for c in final_output if ord(c) > 127)
+            non_ascii_ratio = non_ascii_count / len(final_output)
+            if non_ascii_ratio > 0.3:
+                is_final_good = False
+                final_failure_reason = f"High non-ASCII ratio ({non_ascii_ratio:.1%})"
+
+        # If final result is good, return it
+        if is_final_good:
+            return True, "", quality
+
+        # STEP 2: Final result is bad - check for QUALITY REGRESSION
+        # This handles the over-decoding case (e.g., hex→correct→base64→garbage)
+        # If an intermediate result has much higher quality than final, use it instead
+
+        # Only check intermediates if we have multiple layers AND final quality is low
+        if result.layers_decoded < 2 or quality >= 0.47:
+            return False, final_failure_reason or "Low quality output", quality
+
+        # Quality regression detected - look for better intermediate result
+        best_intermediate_quality = 0.0
+        best_intermediate_index = -1
+
+        for i, decoded_str in enumerate(result.deobfuscated[:-1]):  # Exclude final result
+            intermediate_quality = self._calculate_quality(decoded_str)
+
+            # Require good quality (>= 0.50) AND better than final (at least 0.05 difference)
+            if intermediate_quality < 0.50:
+                continue
+
+            if intermediate_quality < quality + 0.05:
+                continue
+
+            # Check for red flags
+            if len(decoded_str) < 4:
+                continue
+
+            # Check for null bytes (indicates binary data)
+            null_ratio = decoded_str.count('\x00') / len(decoded_str) if decoded_str else 0
+            if null_ratio > 0.03:
+                continue
+
+            # Check for excessive non-ASCII
+            non_ascii_count = sum(1 for c in decoded_str if ord(c) > 127)
+            non_ascii_ratio = non_ascii_count / len(decoded_str) if decoded_str else 0
+            if non_ascii_ratio > 0.05:
+                continue
+
+            # Check for hex-digit-only pattern (indicates still-encoded data)
+            if len(decoded_str) >= 20:
+                hex_chars = sum(1 for c in decoded_str if c in '0123456789abcdefABCDEF')
+                hex_ratio = hex_chars / len(decoded_str)
+                if hex_ratio > 0.9:  # More than 90% hex digits = likely still encoded
                     continue
 
+            # Track best intermediate result
+            if intermediate_quality > best_intermediate_quality:
+                best_intermediate_quality = intermediate_quality
+                best_intermediate_index = i
+
+        # If we found a good intermediate result, truncate to that point and accept it
+        if best_intermediate_index >= 0 and best_intermediate_quality >= quality + 0.05:
+            # Truncate deobfuscated list to stop at the good intermediate result
+            result.deobfuscated = result.deobfuscated[:best_intermediate_index + 1]
+            result.layers_decoded = len(result.deobfuscated)
+            return True, "", best_intermediate_quality
+
+        # STEP 3: No good results found - return failure with reason
+        return False, final_failure_reason or "Low quality output", quality
+
+    def _try_single_strategy(self, text: str, strategy_name: str, decoders: List, start_time: float,
+                             strategy_index: int = 0, total_strategies: int = 1) -> DeobfuscationResult:
+        """
+        Try deobfuscation with a specific decoder ordering strategy
+
+        Args:
+            text: Input string to decode
+            strategy_name: Name of the strategy being used
+            decoders: List of decoder instances to use
+            start_time: Start time for timeout calculation
+            strategy_index: Index of current strategy (for progress calculation)
+            total_strategies: Total number of strategies being tried (for progress calculation)
+
+        Returns:
+            DeobfuscationResult from this strategy
+        """
+        result = DeobfuscationResult(original=text)
+        result.strategy_used = strategy_name
+
+        # Check size limit
+        if len(text.encode('utf-8', errors='ignore')) > self.config.max_input_bytes:
+            result.trace.append(('size_limit', False, f'Input too large'))
+            result.failed = True
+            result.failure_reason = "Input exceeds size limit"
+            return result
+
+        current = text
+        visited_hashes = set()
+        current_hash = hashlib.sha1(current.encode('utf-8', errors='surrogateescape')).hexdigest()
+        visited_hashes.add(current_hash)
+
+        previous_quality = self._calculate_quality(current)
+
+        # Calculate timeout
+        timeout = self.config.per_string_timeout_secs
+
+        # Calculate virtual layer offset for smooth progress across strategies
+        layer_offset = strategy_index * self.config.max_depth
+        virtual_total_layers = total_strategies * self.config.max_depth
+
+        for iteration in range(self.config.max_depth):
+            # Check timeout
+            if time.time() - start_time > timeout:
+                result.timed_out = True
+                result.trace.append(('timeout', False, f'Timeout after {iteration} layers'))
+                result.failed = True
+                result.failure_reason = f"Timeout after {iteration} layers"
+                break
+
+            # Marker-based plaintext detection
+            if self._check_plaintext_markers(current):
+                if iteration > 0:
+                    break
+
+            decoded_this_round = False
+
+            # Try each decoder in order (no "Trying" callback - too verbose and causes progress bar jumps)
+            for method_idx, decoder in enumerate(decoders):
                 try:
-                    decoded = xor_bytes.decode('utf-8', errors='ignore')
-                except:
+                    method_name = decoder.get_name()
+
+                    # Call the decoder (no progress callback for each attempt - too verbose)
+                    decoded = decoder.decode(current)
+
+                    if decoded and decoded != current:
+                        # Check for cycles
+                        decoded_hash = hashlib.sha1(decoded.encode('utf-8', errors='surrogateescape')).hexdigest()
+
+                        if decoded_hash in visited_hashes:
+                            result.trace.append(('cycle', False, f'Skipping {method_name} - already seen'))
+                            continue
+
+                        # Quality check
+                        current_quality = self._calculate_quality(decoded)
+
+                        # Allow short outputs if they're high quality (prevent rejecting valid short strings like "TEST")
+                        if len(decoded) < 4 and iteration > 0:
+                            result.trace.append(('too_short', False, f'Output too short: {len(decoded)} chars'))
+                            break
+
+                        # Success!
+                        preview = decoded[:120] if len(decoded) > 120 else decoded
+                        result.trace.append((method_name, True, preview))
+                        result.deobfuscated.append(decoded)
+                        result.methods_used.append(f"{method_name} (layer {iteration + 1})")
+                        result.layers_decoded = iteration + 1
+                        visited_hashes.add(decoded_hash)
+                        previous_quality = current_quality
+                        current = decoded
+                        decoded_this_round = True
+
+                        # Progress callback: success
+                        if self.config.progress_callback:
+                            virtual_layer = layer_offset + iteration + 1
+                            self.config.progress_callback(
+                                f"✓ {method_name} successful",
+                                virtual_layer,
+                                virtual_total_layers,
+                                preview
+                            )
+
+                        break
+
+                except Exception:
                     continue
 
-                score = self._english_score(decoded) + (printable_ratio * 2)
+            if not decoded_this_round:
+                result.trace.append(('no_match', False, current[:80]))
+                break
 
-                if score > best_score and decoded:
-                    best_score = score
-                    best_result = decoded
+        # Validate result quality
+        is_valid, failure_reason, quality_score = self._validate_result_quality(result, text)
+        result.failed = not is_valid
+        result.failure_reason = failure_reason
+        result.quality_score = quality_score
 
-            return best_result
-
-        except Exception:
-            return ""
+        return result
 
     def deobfuscate_batch(self, strings: List[str]) -> List[DeobfuscationResult]:
         """
@@ -666,7 +612,7 @@ class Deobfuscator:
             strings: List of strings to deobfuscate
 
         Returns:
-            List of DeobfuscationResult objects
+            List of DeobfuscationResult objects (includes both successful and failed results)
         """
         results = []
         for text in strings:
@@ -674,7 +620,8 @@ class Deobfuscator:
             # Minimum 40 chars helps filter out partial Base64/hex strings
             if isinstance(text, str) and len(text) >= 40:
                 result = self.deobfuscate_string(text)
-                if result.layers_decoded > 0:  # Only include successfully decoded strings
+                # Include ALL results (successful and failed) for proper UI feedback
+                if result.layers_decoded > 0 or result.failed:
                     results.append(result)
         return results
 

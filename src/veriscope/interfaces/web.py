@@ -193,7 +193,12 @@ def analyze():
                     'methods': r.methods_used,
                     'suspicious_patterns': r.suspicious_patterns,
                     'trace': r.trace,
-                    'timed_out': r.timed_out
+                    'timed_out': r.timed_out,
+                    'failed': r.failed,
+                    'failure_reason': r.failure_reason,
+                    'quality_score': r.quality_score,
+                    'strategy_used': r.strategy_used,
+                    'strategies_attempted': r.strategies_attempted
                 }
                 for r in result.deobfuscation_results[:20]
             ],

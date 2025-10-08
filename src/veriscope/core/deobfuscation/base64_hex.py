@@ -12,6 +12,9 @@ from .compression import get_compression_decoders
 class Base64Decoder(BaseDecoder):
     """Base64 decoding with noise filtering and compression detection"""
 
+    # Class-level constant for efficient hex checking
+    HEX_CHARS = frozenset('0123456789abcdefABCDEF')
+
     def __init__(self, config=None):
         super().__init__(config)
         self.compression_decoders = get_compression_decoders()
@@ -56,9 +59,11 @@ class Base64Decoder(BaseDecoder):
                     padding_needed = (4 - len(cleaned_no_padding) % 4) % 4
                     cleaned = cleaned_no_padding + ('=' * padding_needed)
 
-            # Skip if looks like hex
+            # Skip if looks like hex (check sample for efficiency)
             if len(cleaned) >= 20 and len(cleaned) % 2 == 0:
-                if all(c in '0123456789abcdefABCDEF' for c in cleaned[:100]):
+                # Check a sample of the string for hex characteristics
+                sample_size = min(60, len(cleaned))
+                if all(c in self.HEX_CHARS for c in cleaned[:sample_size]):
                     return ""
 
             # Decode
@@ -122,11 +127,15 @@ class HexDecoder(BaseDecoder):
             cleaned = text.replace(' ', '').replace('0x', '').replace('\\x', '')
 
             # Validation
-            if len(cleaned) < 10 or len(cleaned) % 2 != 0:
+            if len(cleaned) < 10:
                 return ""
 
             if not all(c in '0123456789abcdefABCDEF' for c in cleaned):
                 return ""
+
+            # Handle odd-length hex strings by prepending '0'
+            if len(cleaned) % 2 != 0:
+                cleaned = '0' + cleaned
 
             # Decode
             decoded_bytes = bytes.fromhex(cleaned)

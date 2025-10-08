@@ -6,7 +6,7 @@ License: MIT
 Version: 1.3.0
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 __author__ = "BearWatchDev"
 __contact__ = "BearWatchDev@pm.me"
 __license__ = "MIT"

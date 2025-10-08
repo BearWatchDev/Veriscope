@@ -4,7 +4,7 @@
 
 Veriscope transforms raw malware artifacts into actionable detection intelligence through automated deobfuscation, IOC extraction, and detection rule generation.
 
-![Version](https://img.shields.io/badge/version-1.3.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
+![Version](https://img.shields.io/badge/version-1.4.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
 
 ---
 

@@ -12,6 +12,15 @@ from .base import BaseDecoder
 class ROT13Decoder(BaseDecoder):
     """ROT13 Caesar cipher decoding with keyword detection"""
 
+    # Class-level constants for better performance (avoid recreating on each decode)
+    COMMON_KEYWORDS = frozenset([
+        'http', 'www', 'exe', 'dll', 'cmd', 'powershell', 'script',
+        'user', 'config', 'token', 'shell', 'alert', 'process',
+        'mail', 'from', 'subject', 'message', 'email', 'sender',
+        'recipient', 'attacker', 'example', 'update', 'urgent'
+    ])
+    BASE64_ALPHABET = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+
     def __init__(self, config=None):
         super().__init__(config)
         self.speculative_mode = config.speculative_rot13 if config else False
@@ -47,33 +56,26 @@ class ROT13Decoder(BaseDecoder):
             # Don't trigger if input itself looks like base64 (would cause ROT13 → Base64 false positive)
             # Check if input has high ratio of base64 alphabet characters
             if len(text) >= 20:
-                base64_alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-                base64_ratio = sum(1 for c in text if c in base64_alphabet) / len(text)
+                base64_ratio = sum(1 for c in text if c in self.BASE64_ALPHABET) / len(text)
                 if base64_ratio > 0.92:  # 92%+ base64 chars in input = probably already base64, skip ROT13
                     return ""
 
             decoded = codecs.decode(text, 'rot13')
 
             # Check for common words or markers
-            common_words = [
-                'http', 'www', 'exe', 'dll', 'cmd', 'powershell', 'script',
-                'user', 'config', 'token', 'shell', 'alert', 'process',
-                'mail', 'from', 'subject', 'message', 'email', 'sender',
-                'recipient', 'attacker', 'example', 'update', 'urgent'
-            ]
-            if any(word in decoded.lower() for word in common_words):
+            decoded_lower = decoded.lower()
+            if any(word in decoded_lower for word in self.COMMON_KEYWORDS):
                 return decoded
 
             # Speculative ROT13: If enabled, also check if output looks like it could be further decoded
             if self.speculative_mode and len(decoded) >= 20:
                 # Check if decoded output looks like valid Base64
-                base64_alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-                base64_ratio = sum(1 for c in decoded if c in base64_alphabet) / len(decoded)
+                base64_ratio = sum(1 for c in decoded if c in self.BASE64_ALPHABET) / len(decoded)
 
                 if base64_ratio > 0.90:  # 90% Base64 characters
                     # Verify it can actually be decoded as Base64
                     try:
-                        cleaned = ''.join(c for c in decoded if c in base64_alphabet)
+                        cleaned = ''.join(c for c in decoded if c in self.BASE64_ALPHABET)
                         test_decode = base64.b64decode(cleaned)
                         if len(test_decode) >= 10:  # Non-trivial output
                             return decoded
@@ -126,7 +128,7 @@ class URLDecoder(BaseDecoder):
 
 
 class CharCodesDecoder(BaseDecoder):
-    """Character code decoding for comma-separated, colon-separated, or space-separated decimal codes"""
+    """Character code decoding for comma-separated, colon-separated, or space-separated decimal/hex codes"""
 
     def get_name(self) -> str:
         return "char_codes"
@@ -136,9 +138,10 @@ class CharCodesDecoder(BaseDecoder):
         Decode character codes (e.g., JavaScript String.fromCharCode)
 
         Supports formats:
-        - Comma-separated: "72,101,108,108,111"
-        - Colon-separated: "72:101:108:108:111"
-        - Space-separated: "72 101 108 108 111"
+        - Comma-separated decimal: "72,101,108,108,111"
+        - Colon-separated decimal: "72:101:108:108:111"
+        - Space-separated decimal: "72 101 108 108 111"
+        - Hex format: "0x48,0x65,0x6c,0x6c,0x6f" or "0x48 0x65 0x6c"
 
         Args:
             text: Input string with character codes
@@ -147,11 +150,15 @@ class CharCodesDecoder(BaseDecoder):
             Decoded string if valid char codes found, empty otherwise
         """
         try:
+            # Check for hex format (0x prefix)
+            has_hex_prefix = '0x' in text.lower()
+
             # Determine delimiter
             delimiter = None
             if ',' in text and text.count(',') >= 3:
                 delimiter = ','
-            elif ':' in text and text.count(':') >= 3:
+            elif ':' in text and text.count(':') >= 3 and not has_hex_prefix:
+                # Avoid confusing : delimiter with 0x: pattern
                 delimiter = ':'
             elif ' ' in text and text.count(' ') >= 3:
                 # Only if no other delimiters
@@ -164,11 +171,19 @@ class CharCodesDecoder(BaseDecoder):
             # Split and parse
             parts = [p.strip() for p in text.split(delimiter)]
 
-            # Check if all parts are valid decimal numbers
-            try:
-                char_codes = [int(p) for p in parts if p.isdigit()]
-            except ValueError:
-                return ""
+            # Parse numbers (handle both decimal and hex)
+            char_codes = []
+            for p in parts:
+                if not p:
+                    continue
+                try:
+                    # Try hex first if it looks like hex
+                    if p.lower().startswith('0x'):
+                        char_codes.append(int(p, 16))
+                    elif p.isdigit():
+                        char_codes.append(int(p))
+                except ValueError:
+                    continue
 
             # Must have at least 4 char codes
             if len(char_codes) < 4:
@@ -185,7 +200,7 @@ class CharCodesDecoder(BaseDecoder):
             if decoded and len(decoded) >= 4:
                 # Check if mostly printable
                 printable_ratio = sum(1 for c in decoded if c.isprintable()) / len(decoded)
-                if printable_ratio > 0.8:
+                if printable_ratio > 0.75:  # Slightly more lenient than before
                     return decoded
 
         except Exception:

@@ -7,8 +7,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from .core.engine import VeriscopeEngine
-from .utils.report_generator import ReportGenerator
+# Add parent directory to path for imports (fixes PYTHONPATH requirement)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from veriscope.core.engine import VeriscopeEngine
+from veriscope.utils.report_generator import ReportGenerator
 
 
 def main():
@@ -91,7 +94,7 @@ def main():
     parser.add_argument(
         '-v', '--version',
         action='version',
-        version='Veriscope v1.3.0'
+        version='Veriscope v1.4.0'
     )
 
     # Parse arguments
@@ -204,7 +207,7 @@ def print_banner():
  ╚╝ └─┘┴└─┴└─┘└─┘└─┘┴  └─┘
 
 Unified IOC + ATT&CK + YARA + Sigma Engine
-Version 1.3.0 | MIT License
+Version 1.4.0 | MIT License
 """
     print(banner)
 

@@ -3,10 +3,10 @@ Veriscope - Unified IOC + ATT&CK + YARA + Sigma Detection Engine
 Author: BearWatchDev
 Contact: BearWatchDev@pm.me
 License: MIT
-Version: 1.3.0
+Version: 1.4.1
 """
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __author__ = "BearWatchDev"
 __contact__ = "BearWatchDev@pm.me"
 __license__ = "MIT"

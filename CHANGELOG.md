@@ -5,6 +5,28 @@ All notable changes to Veriscope will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2025-10-14
+
+### Added
+- **Automatic Preset Rotation**: NEW intelligent fallback system that automatically tries multiple presets when default fails
+  - Automatically rotates through presets: `balanced` → `malware_analysis` → `aggressive` → `deepseek_optimized`
+  - No manual configuration required - happens transparently in background
+  - Early termination when a preset succeeds (performance optimized)
+  - Returns best result based on quality score across all attempts
+  - Adds `_enable_auto_rotation` parameter to prevent infinite recursion
+  - Tags results with `auto_fallback` strategy indicator
+  - Comprehensive test suite validates no infinite loops (`test_auto_rotation.py`)
+
+### Improved
+- **Deobfuscator robustness**: Significantly improved success rate on difficult obfuscation patterns
+  - Automatically handles edge cases that previously required manual preset selection
+  - Graceful degradation: tries up to 4 different preset configurations
+  - Best-effort result selection when all presets fail
+
+### Documentation
+- Updated CLAUDE.md with automatic preset rotation usage examples
+- Added troubleshooting guidance for v1.4.1+ automatic handling
+
 ## [1.4.0] - 2025-10-08
 
 ### Improved

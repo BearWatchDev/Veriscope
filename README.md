@@ -4,7 +4,7 @@
 
 Veriscope transforms raw malware artifacts into actionable detection intelligence through automated deobfuscation, IOC extraction, and detection rule generation.
 
-![Version](https://img.shields.io/badge/version-1.4.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
+![Version](https://img.shields.io/badge/version-1.4.1-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
 
 ---
 
@@ -345,7 +345,7 @@ chmod +x cleanup_veriscope.sh
 
 ## Project Information
 
-**Version**: 1.3.0
+**Version**: 1.4.1
 **License**: MIT
 **Platform**: Linux-first, cross-platform compatible (Windows, macOS)
 **Dependencies**: Python 3.8+, Flask, PyYAML
@@ -453,4 +453,4 @@ MIT License - See LICENSE file for details
 
 **Made with ❤ for the cybersecurity community**
 
-*Veriscope v1.3.0 | Advanced multi-layer deobfuscation for defensive security operations*
+*Veriscope v1.4.1 | Advanced multi-layer deobfuscation for defensive security operations*

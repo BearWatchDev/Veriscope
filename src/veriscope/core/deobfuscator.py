@@ -163,15 +163,18 @@ class Deobfuscator:
         # Initialize modular decoders
         self.decoders = get_all_decoders(self.config)
 
-    def deobfuscate_string(self, text: str) -> DeobfuscationResult:
+    def deobfuscate_string(self, text: str, _enable_auto_rotation: bool = True) -> DeobfuscationResult:
         """
         Attempt to deobfuscate a single string using multiple methods
 
         First tries default decoder ordering. If that fails, automatically
-        falls back to smart mode (trying multiple decoder orderings).
+        falls back to smart mode (trying multiple decoder orderings). If all
+        strategies fail, automatically tries preset rotation as a last resort.
 
         Args:
             text: Input string (potentially obfuscated)
+            _enable_auto_rotation: Internal flag to prevent infinite recursion
+                                   (set to False when called from preset rotation)
 
         Returns:
             DeobfuscationResult with original and deobfuscated versions
@@ -254,6 +257,22 @@ class Deobfuscator:
                     if not result.failure_reason:
                         result.failure_reason = f"All {len(smart_results) + 1} strategies failed to produce valid output"
 
+        # Step 3: If all strategies failed AND auto-rotation is enabled, try preset rotation as last resort
+        if result.failed and _enable_auto_rotation:
+            # Try preset rotation (but don't get stuck in infinite loop)
+            preset_result = self.deobfuscate_with_preset_rotation(text, presets=None)
+
+            # If preset rotation succeeded, return that result
+            if not preset_result.failed and not preset_result.timed_out:
+                # Tag to show automatic fallback occurred
+                preset_result.strategies_attempted.insert(0, "auto_fallback")
+                return preset_result
+
+            # If preset rotation also failed but has better quality, use it
+            if preset_result.quality_score > result.quality_score:
+                preset_result.strategies_attempted.insert(0, "auto_fallback")
+                return preset_result
+
         # Return default result (success or failure)
         return result
 
@@ -295,8 +314,8 @@ class Deobfuscator:
                 # Create new deobfuscator with preset config
                 preset_deobfuscator = Deobfuscator(preset_config)
 
-                # Try deobfuscation with this preset
-                result = preset_deobfuscator.deobfuscate_string(text)
+                # Try deobfuscation with this preset (disable auto-rotation to prevent infinite loop)
+                result = preset_deobfuscator.deobfuscate_string(text, _enable_auto_rotation=False)
 
                 # Tag result with preset name
                 result.strategy_used = f"preset:{preset_name}"
@@ -392,32 +411,110 @@ class Deobfuscator:
         return False
 
     def _calculate_quality(self, text: str) -> float:
-        """Calculate quality score for decoded text"""
+        """
+        Calculate quality score for decoded text (0.0 - 1.0+)
+
+        Uses multiple signals to detect meaningful vs garbage output:
+        - Letter ratio: Penalizes symbol-heavy strings
+        - Word detection: Rewards presence of common words
+        - Structure: Rewards spaces and readable patterns
+        """
         if not text:
             return 0.0
 
-        printable_ratio = sum(c.isprintable() or c in '\n\r\t' for c in text) / len(text)
-        english_score = self._english_score(text)
+        # Signal 1: Letter ratio (alphabetic chars vs total)
+        letter_count = sum(c.isalpha() for c in text)
+        letter_ratio = letter_count / len(text) if len(text) > 0 else 0.0
 
-        return printable_ratio * 0.5 + english_score * 0.5
+        # Signal 2: Word score (normalized 0.0-1.0)
+        word_score = self._english_score(text)
+
+        # Signal 3: Structure score (spaces, readable patterns)
+        structure_score = self._structure_score(text)
+
+        # Weighted combination
+        # Letter ratio (30%): Filters out symbol-heavy garbage
+        # Word score (40%): Primary signal for meaningful content
+        # Structure (30%): Rewards readable formatting
+        quality = (letter_ratio * 0.3) + (word_score * 0.4) + (structure_score * 0.3)
+
+        return quality
 
     def _english_score(self, text: str) -> float:
-        """Score text for English-like characteristics"""
+        """
+        Score text for English-like characteristics (normalized 0.0-1.0)
+
+        Detects common words and technical terms
+        """
         if not text:
             return 0.0
 
         score = 0.0
         text_lower = text.lower()
 
-        # Common English words
-        common_words = ['the', 'and', 'for', 'with', 'http', 'www', 'com', 'exe', 'dll',
-                       'user', 'admin', 'config', 'file', 'path', 'system', 'windows']
+        # Common English words and technical terms
+        common_words = [
+            'the', 'and', 'for', 'with', 'from', 'this', 'that',
+            'http', 'https', 'www', 'com', 'org', 'net',
+            'exe', 'dll', 'cmd', 'powershell', 'script',
+            'user', 'admin', 'config', 'file', 'path', 'system', 'windows',
+            'select', 'where', 'password', 'token', 'command',
+            'url', 'alert', 'login', 'failed'
+        ]
 
+        # Count word matches
+        matches = 0
         for word in common_words:
             if word in text_lower:
-                score += 1.0
+                matches += 1
 
-        return min(score, 10.0)
+        # Normalize to 0.0-1.0 range
+        # Finding 3+ words = very high confidence (1.0)
+        # Finding 1 word = moderate confidence (0.33)
+        # Finding 0 words = no confidence (0.0)
+        if matches >= 3:
+            score = 1.0
+        elif matches == 2:
+            score = 0.67
+        elif matches == 1:
+            score = 0.33
+        else:
+            score = 0.0
+
+        return score
+
+    def _structure_score(self, text: str) -> float:
+        """
+        Score text for readable structure (normalized 0.0-1.0)
+
+        Rewards spaces, punctuation patterns, and readability
+        """
+        if not text:
+            return 0.0
+
+        score = 0.0
+
+        # Has spaces (indicates word separation)
+        if ' ' in text:
+            space_ratio = text.count(' ') / len(text)
+            # Ideal space ratio is 10-20%
+            if 0.05 <= space_ratio <= 0.3:
+                score += 0.4
+            elif space_ratio > 0:
+                score += 0.2
+
+        # Has common punctuation (indicates sentences/structure)
+        punctuation_chars = ':.,;-_'
+        if any(p in text for p in punctuation_chars):
+            score += 0.3
+
+        # Has mix of uppercase and lowercase (indicates natural text)
+        has_upper = any(c.isupper() for c in text)
+        has_lower = any(c.islower() for c in text)
+        if has_upper and has_lower:
+            score += 0.3
+
+        return min(score, 1.0)
 
     def _get_decoder_strategies(self) -> List[Tuple[str, List]]:
         """

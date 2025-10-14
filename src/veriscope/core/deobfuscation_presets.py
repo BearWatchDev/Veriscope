@@ -124,13 +124,13 @@ class PresetLibrary:
         - Balanced accuracy vs coverage
         """
         thresholds = ValidationThresholds(
-            final_min_quality=0.45,
+            final_min_quality=0.55,              # Raised from 0.45 to filter garbage better
             final_max_null_ratio=0.3,
             final_max_nonascii_ratio=0.3,
             min_output_length=4,
 
-            intermediate_trigger_quality=0.47,
-            intermediate_min_quality=0.50,
+            intermediate_trigger_quality=0.57,   # Raised from 0.47
+            intermediate_min_quality=0.60,       # Raised from 0.50
             intermediate_min_improvement=0.05,
             intermediate_max_null_ratio=0.03,
             intermediate_max_nonascii_ratio=0.05,

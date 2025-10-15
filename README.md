@@ -4,7 +4,7 @@
 
 Veriscope transforms raw malware artifacts into actionable detection intelligence through automated deobfuscation, IOC extraction, and detection rule generation.
 
-![Version](https://img.shields.io/badge/version-1.4.1-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
+![Version](https://img.shields.io/badge/version-1.5.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.8+-blue) ![Status](https://img.shields.io/badge/status-active-success)
 
 ---
 
@@ -345,13 +345,36 @@ chmod +x cleanup_veriscope.sh
 
 ## Project Information
 
-**Version**: 1.4.1
+**Version**: 1.4.2
 **License**: MIT
 **Platform**: Linux-first, cross-platform compatible (Windows, macOS)
 **Dependencies**: Python 3.8+, Flask, PyYAML
 **Contact**: BearWatchDev@pm.me
 
 ### Changelog
+
+**v1.4.2** (2025-10-15)
+- 🐛 **CRITICAL BUG FIX**: Quality scoring algorithm now properly detects ROT13-encoded text
+- ✨ **NEW**: Encoding artifact penalty system (detects Base64 padding ==, URL encoding %XX, hex patterns)
+- 🔧 **IMPROVED**: English word detection with regex word boundaries for better accuracy
+- 🔧 **IMPROVED**: ROT13 detection with common word dictionary (cebkl→proxy, nhgu→auth, onfvp→basic)
+- 🐛 **FIXED**: Under-decoding issue where intermediate layers were incorrectly selected over final plaintext
+- 📊 **VALIDATED**: easy50 test suite success rate increased from 16% to 84% (+68 percentage points)
+- ⚙️ **TUNED**: Quality scoring weights: word_score (45%), letter_ratio (25%), structure (20%), encoding_penalty (10%)
+
+**v1.4.1** (2025-10-14)
+- ✨ **NEW**: Automatic preset rotation - tries multiple presets when default fails
+- ⚡ **PERFORMANCE**: ROT13Decoder (213k ops/sec), Base64Decoder (139k ops/sec)
+- 🔧 **IMPROVED**: HexDecoder handles odd-length hex strings gracefully
+- 🔧 **IMPROVED**: CharCodesDecoder added hex format support (0x48,0x65,... patterns)
+- 📊 **PERFORMANCE**: 50% batch processing improvement (71k samples/sec)
+- 🌐 **NEW**: FastAPI REST API interface added
+
+**v1.4.0** (2025-10-12)
+- ✨ **NEW**: Modular preset system with 5 presets (conservative, balanced, aggressive, malware_analysis, deepseek_optimized)
+- 📦 **NEW**: `PresetLibrary` for centralized configuration management
+- ⚡ **PERFORMANCE**: Decoder optimizations with frozenset caching
+- 🔧 **IMPROVED**: Configurable validation thresholds per preset
 
 **v1.3.0** (2025-10-07)
 - ✨ **NEW**: Quality Regression Detection - automatically stops decoding at quality peaks

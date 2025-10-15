@@ -158,15 +158,17 @@ class PresetLibrary:
         - Exploring unknown obfuscation patterns
         - Research and experimentation
         - Accept more false positives for better recall
+
+        Note: Raised from 0.35 to 0.42 to prevent truncated/incomplete decodes
         """
         thresholds = ValidationThresholds(
-            final_min_quality=0.35,              # More permissive
+            final_min_quality=0.42,              # Raised from 0.35 (v1.4.2 bugfix)
             final_max_null_ratio=0.4,            # More tolerant of null bytes
             final_max_nonascii_ratio=0.4,        # More tolerant of non-ASCII
             min_output_length=2,                 # Shorter minimum
 
-            intermediate_trigger_quality=0.40,   # Check intermediates more often
-            intermediate_min_quality=0.45,       # Lower bar for intermediates
+            intermediate_trigger_quality=0.45,   # Raised from 0.40
+            intermediate_min_quality=0.48,       # Raised from 0.45
             intermediate_min_improvement=0.03,   # Smaller improvement needed
             intermediate_max_null_ratio=0.05,    # More permissive
             intermediate_max_nonascii_ratio=0.08,  # More permissive

@@ -68,6 +68,14 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         if (update.type === 'success') {
             methodChain.push(update.methodName);
             progressPreview.textContent = methodChain.join(' → ');
+        } else if (update.type === 'status') {
+            // Strategy/preset status message - KEEP CHAIN SHORT
+            // Only keep last 5 methods + this status message for readability
+            if (methodChain.length > 5) {
+                methodChain = ['...'].concat(methodChain.slice(-4));
+            }
+            methodChain.push(update.methodName);
+            progressPreview.textContent = methodChain.join(' → ');
         } else if (update.type === 'complete') {
             progressPreview.textContent = methodChain.join(' → ');
         }
@@ -109,6 +117,19 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
 
         if (data.status === 'alive') {
             // Heartbeat - do nothing
+            return;
+        }
+
+        // Handle strategy/preset messages first (they may not have layer data)
+        if (data.method && (data.method.includes('Strategy:') || data.method.includes('Preset:') ||
+                            data.method.includes('rotation') || data.method.includes('alternative'))) {
+            // Strategy/Preset switching notification - queue it
+            updateQueue.push({
+                type: 'status',
+                methodName: data.method,
+                progressText: data.method
+            });
+            processUpdateQueue();
             return;
         }
 
@@ -1332,6 +1353,24 @@ function resetForNewAnalysis() {
     const tabs = document.querySelector('.tabs');
     if (summaryCards) summaryCards.style.display = 'grid';
     if (tabs) tabs.style.display = 'flex';
+
+    // BUGFIX: Clear progress bar and method chain from previous analysis
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const progressPreview = document.getElementById('progress-preview');
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
+    if (progressBar) {
+        progressBar.style.width = '0%';
+    }
+    if (progressText) {
+        progressText.textContent = 'Starting analysis...';
+    }
+    if (progressPreview) {
+        progressPreview.textContent = ''; // Clear method chain from previous analysis
+    }
 
     // Reset form
     document.getElementById('upload-form').reset();

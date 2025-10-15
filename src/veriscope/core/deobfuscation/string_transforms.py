@@ -93,22 +93,31 @@ class StringReversalDecoder(BaseDecoder):
         return "string_reversal"
 
     def can_decode(self, text: str) -> bool:
-        # VERY conservative - only reverse if string STARTS with == (reversed base64 padding)
-        # This avoids false positives
+        # FIXED (v1.4.2): Detect reversed base64 by checking for padding at start
+        # Reversed base64 will have = or == at the beginning instead of end
         if len(text) < 10:
             return False
 
-        # Must start with == (reversed padding) and have alphanumeric content
+        # Check for = or == at start (reversed base64 padding)
         if text.startswith('=='):
-            # Check if rest looks like base64 (reversed)
+            # Double padding - check if rest looks like base64
             rest = text[2:]
+            base64_chars = sum(1 for c in rest if c.isalnum() or c in '+/=')
+            return base64_chars / len(rest) > 0.85
+        elif text.startswith('='):
+            # Single padding - check if rest looks like base64
+            rest = text[1:]
             base64_chars = sum(1 for c in rest if c.isalnum() or c in '+/=')
             return base64_chars / len(rest) > 0.85
 
         return False
 
     def decode(self, text: str) -> Optional[str]:
-        # Simply return the reversed string
+        # Check if this looks like reversed base64 before reversing
+        if not self.can_decode(text):
+            return None
+
+        # Reverse the string
         reversed_text = text[::-1]
         if reversed_text != text:
             return reversed_text

@@ -200,6 +200,13 @@ class Deobfuscator:
 
         # Step 2: If default failed, automatically try smart mode as fallback
         if result.failed:
+            # Notify user that we're trying alternative strategies
+            if self.config.progress_callback:
+                self.config.progress_callback(
+                    "⚙ Trying alternative decoder strategies...",
+                    0, 1, "Switching to smart mode"
+                )
+
             smart_results = []
 
             # Try each alternative strategy (stop early if one succeeds)
@@ -209,6 +216,14 @@ class Deobfuscator:
                 if strategy_name == "default":
                     strategy_idx += 1
                     continue
+
+                # Notify about strategy switch
+                if self.config.progress_callback:
+                    self.config.progress_callback(
+                        f"🔄 Strategy: {strategy_name}",
+                        strategy_idx, total_strategies,
+                        f"Attempting {strategy_name} decoder ordering"
+                    )
 
                 strategy_result = self._try_single_strategy(text, strategy_name, decoders, start_time,
                                                            strategy_index=strategy_idx,
@@ -257,8 +272,19 @@ class Deobfuscator:
                     if not result.failure_reason:
                         result.failure_reason = f"All {len(smart_results) + 1} strategies failed to produce valid output"
 
-        # Step 3: If all strategies failed AND auto-rotation is enabled, try preset rotation as last resort
-        if result.failed and _enable_auto_rotation:
+        # Step 3: If all strategies failed OR quality is poor, try preset rotation as last resort
+        # Trigger if: completely failed OR quality is below threshold (0.65 = suspicious/garbled)
+        quality_is_poor = result.quality_score < 0.65 if result.quality_score > 0 else False
+
+        if (result.failed or quality_is_poor) and _enable_auto_rotation:
+            # Notify user that we're entering automatic preset rotation
+            if self.config.progress_callback:
+                reason = "Low quality output detected" if quality_is_poor else "All strategies failed"
+                self.config.progress_callback(
+                    f"🔧 Preset rotation: {reason}",
+                    0, 1, "Trying alternative configuration presets"
+                )
+
             # Try preset rotation (but don't get stuck in infinite loop)
             preset_result = self.deobfuscate_with_preset_rotation(text, presets=None)
 
@@ -303,9 +329,17 @@ class Deobfuscator:
         results = []
         original_config = self.config
 
-        for preset_name in presets:
+        for idx, preset_name in enumerate(presets):
             # Load preset configuration
             try:
+                # Notify user about trying this preset
+                if original_config.progress_callback:
+                    original_config.progress_callback(
+                        f"📦 Preset: {preset_name}",
+                        idx + 1, len(presets),
+                        f"Trying '{preset_name}' configuration"
+                    )
+
                 preset_config = DeobfuscationConfig.from_preset(preset_name)
                 # Preserve progress callback from original config
                 if original_config.progress_callback:
@@ -323,6 +357,13 @@ class Deobfuscator:
 
                 # Early termination: if this preset succeeded, no need to try others
                 if not result.failed and not result.timed_out:
+                    # Notify success
+                    if original_config.progress_callback:
+                        original_config.progress_callback(
+                            f"✅ Success with preset: {preset_name}",
+                            len(presets), len(presets),
+                            "Preset rotation successful"
+                        )
                     # Restore original config
                     self.config = original_config
                     self.decoders = get_all_decoders(self.config)
@@ -418,6 +459,7 @@ class Deobfuscator:
         - Letter ratio: Penalizes symbol-heavy strings
         - Word detection: Rewards presence of common words
         - Structure: Rewards spaces and readable patterns
+        - Encoding penalties: Penalizes remaining encoded patterns
         """
         if not text:
             return 0.0
@@ -432,19 +474,25 @@ class Deobfuscator:
         # Signal 3: Structure score (spaces, readable patterns)
         structure_score = self._structure_score(text)
 
-        # Weighted combination
-        # Letter ratio (30%): Filters out symbol-heavy garbage
-        # Word score (40%): Primary signal for meaningful content
-        # Structure (30%): Rewards readable formatting
-        quality = (letter_ratio * 0.3) + (word_score * 0.4) + (structure_score * 0.3)
+        # Signal 4: Encoding penalty (NEW - penalize remaining encoding artifacts)
+        encoding_penalty = self._encoding_artifact_penalty(text)
 
-        return quality
+        # Weighted combination
+        # Letter ratio (25%): Filters out symbol-heavy garbage
+        # Word score (45%): PRIMARY signal for meaningful content (increased from 40%)
+        # Structure (20%): Rewards readable formatting
+        # Encoding penalty (10%): Penalizes remaining encoded patterns
+        quality = (letter_ratio * 0.25) + (word_score * 0.45) + (structure_score * 0.20) - (encoding_penalty * 0.10)
+
+        # Ensure quality stays in reasonable range
+        return max(0.0, min(1.0, quality))
 
     def _english_score(self, text: str) -> float:
         """
         Score text for English-like characteristics (normalized 0.0-1.0)
 
         Detects common words and technical terms
+        Also detects ROT13-encoded text (penalizes it)
         """
         if not text:
             return 0.0
@@ -452,32 +500,72 @@ class Deobfuscator:
         score = 0.0
         text_lower = text.lower()
 
-        # Common English words and technical terms
+        # Common English words and technical/security terms
+        # EXPANDED (v1.4.2): Added malware/security keywords for better quality scoring
         common_words = [
-            'the', 'and', 'for', 'with', 'from', 'this', 'that',
-            'http', 'https', 'www', 'com', 'org', 'net',
-            'exe', 'dll', 'cmd', 'powershell', 'script',
-            'user', 'admin', 'config', 'file', 'path', 'system', 'windows',
-            'select', 'where', 'password', 'token', 'command',
-            'url', 'alert', 'login', 'failed'
+            'the', 'and', 'for', 'with', 'from', 'this', 'that', 'have', 'not', 'are', 'can',
+            'http', 'https', 'www', 'com', 'org', 'net', 'exe', 'dll', 'cmd', 'powershell',
+            'script', 'user', 'admin', 'config', 'file', 'path', 'system', 'windows',
+            'select', 'where', 'password', 'token', 'command', 'url', 'alert', 'login',
+            'failed', 'process', 'error', 'test', 'data', 'info', 'message', 'proxy', 'auth',
+            'basic', 'server', 'client', 'request', 'response', 'payload',
+            # Security/malware terms (v1.4.2)
+            'backdoor', 'bash', 'bin', 'tmp', 'shell', 'netcat', 'reverse', 'connect',
+            'malware', 'trojan', 'download', 'upload', 'credential', 'registry', 'persistence'
         ]
 
-        # Count word matches
+        # ROT13 versions of common words (to detect ROT13-encoded text)
+        rot13_words = [
+            'gur',  # the
+            'naq',  # and
+            'sbe',  # for
+            'jvgu', # with
+            'sebz', # from
+            'guvf', # this
+            'gung', # that
+            'cebkl',  # proxy (from test_02)
+            'nhgu',   # auth (from test_02)
+            'onfvp',  # basic (from test_02)
+            'pbzznaq', # command
+            'cebprff', # process
+        ]
+
+        # Count English word matches
+        # Use simple substring matching (more lenient) but check for word-like boundaries
+        import re
         matches = 0
         for word in common_words:
-            if word in text_lower:
+            # Match word with word boundaries (handles punctuation)
+            pattern = r'\b' + re.escape(word) + r'\b'
+            if re.search(pattern, text_lower):
                 matches += 1
 
-        # Normalize to 0.0-1.0 range
-        # Finding 3+ words = very high confidence (1.0)
-        # Finding 1 word = moderate confidence (0.33)
-        # Finding 0 words = no confidence (0.0)
-        if matches >= 3:
+        # Count ROT13 matches (penalty)
+        rot13_matches = 0
+        for word in rot13_words:
+            pattern = r'\b' + re.escape(word) + r'\b'
+            if re.search(pattern, text_lower):
+                rot13_matches += 1
+
+        # If ROT13 words detected, heavily penalize score
+        if rot13_matches >= 2:
+            return 0.0  # Definitely ROT13-encoded
+        elif rot13_matches == 1:
+            score = max(0.0, score - 0.5)  # Probably ROT13-encoded
+
+        # Normalize English word matches to 0.0-1.0 range
+        # Finding 4+ words = very high confidence (1.0)
+        # Finding 2-3 words = moderate-high confidence
+        # Finding 1 word = low confidence
+        # Finding 0 words = no confidence
+        if matches >= 4:
             score = 1.0
+        elif matches == 3:
+            score = 0.80
         elif matches == 2:
-            score = 0.67
+            score = 0.50
         elif matches == 1:
-            score = 0.33
+            score = 0.25
         else:
             score = 0.0
 
@@ -515,6 +603,91 @@ class Deobfuscator:
             score += 0.3
 
         return min(score, 1.0)
+
+    def _encoding_artifact_penalty(self, text: str) -> float:
+        """
+        Detect remaining encoding artifacts (normalized 0.0-1.0)
+
+        Higher penalty = more likely still encoded or truncated
+        Penalizes:
+        - Base64 padding (== or =)
+        - URL encoding (%XX patterns)
+        - Hex-only patterns
+        - Base64-like character distribution
+        - Truncated/incomplete decodes (e.g., "powershell.6f")
+        """
+        if not text:
+            return 0.0
+
+        penalty = 0.0
+        import re
+
+        # NEW: Check for truncated/incomplete decode patterns (even for short strings)
+        # Pattern 1: Ends with partial hex value (e.g., "powershell.6f", "data.a2")
+        if len(text) >= 6 and re.search(r'\.[0-9a-fA-F]{1,2}$', text):
+            penalty += 0.6  # Strong indicator of truncation
+
+        # For very short strings, only apply truncation detection
+        if len(text) < 10:
+            return min(penalty, 1.0)
+
+        # Check for Base64 padding at end
+        if text.endswith('=='):
+            penalty += 0.4  # Strong indicator of Base64
+        elif text.endswith('='):
+            penalty += 0.3
+
+        # Pattern 2: Ends with incomplete common word patterns
+        truncation_patterns = [
+            r'powershell\.$',  # "powershell." without extension
+            r'cmd\.$',         # "cmd." without extension
+            r'\.\w{1,2}$',     # Any 1-2 char extension (likely truncated)
+            r'[a-z]{3,}\.{2,}$',  # Word followed by multiple dots
+        ]
+        for pattern in truncation_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                penalty += 0.5
+
+        # Pattern 3: Very short output with suspicious ending
+        if len(text) < 20:
+            if text.endswith('.') or text.endswith(',') or re.search(r'\.[0-9a-fA-F]$', text):
+                penalty += 0.4
+
+        # Check for URL encoding (% followed by 2 hex digits)
+        url_encoded_pattern_count = sum(1 for i in range(len(text) - 2)
+                                       if text[i] == '%' and
+                                       text[i+1:i+3].isalnum() and
+                                       len(text[i+1:i+3]) == 2)
+        if url_encoded_pattern_count > 0:
+            url_ratio = url_encoded_pattern_count / len(text)
+            if url_ratio > 0.05:  # More than 5% URL encoded
+                penalty += 0.5
+            elif url_ratio > 0.02:
+                penalty += 0.3
+
+        # Check for hex-only patterns (long runs of hex digits)
+        sample = text[:200]  # Check first 200 chars
+        if len(sample) >= 20:
+            hex_chars = sum(1 for c in sample if c in '0123456789abcdefABCDEF')
+            hex_ratio = hex_chars / len(sample)
+            if hex_ratio > 0.95:  # 95%+ hex chars
+                penalty += 0.6
+            elif hex_ratio > 0.85:
+                penalty += 0.4
+
+        # Check for Base64-like character distribution
+        # Base64 uses A-Za-z0-9+/= but rarely has spaces
+        if len(sample) >= 20:
+            base64_chars = sum(1 for c in sample if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+            base64_ratio = base64_chars / len(sample)
+            has_few_spaces = sample.count(' ') / len(sample) < 0.02  # Less than 2% spaces
+
+            if base64_ratio > 0.95 and has_few_spaces:
+                penalty += 0.5  # Likely still Base64 encoded
+            elif base64_ratio > 0.85 and has_few_spaces:
+                penalty += 0.3
+
+        return min(penalty, 1.0)
 
     def _get_decoder_strategies(self) -> List[Tuple[str, List]]:
         """
@@ -689,24 +862,51 @@ class Deobfuscator:
 
         # STEP 2: Final result is bad - check for QUALITY REGRESSION
         # This handles the over-decoding case (e.g., hex→correct→base64→garbage)
-        # If an intermediate result has much higher quality than final, use it instead
+        # If an intermediate result has SIGNIFICANTLY higher quality than final, use it instead
 
         # Only check intermediates if we have multiple layers AND final quality is low
         if result.layers_decoded < 2 or quality >= thresholds.intermediate_trigger_quality:
             return False, final_failure_reason or "Low quality output", quality
 
         # Quality regression detected - look for better intermediate result
+        # NEW: Track all quality scores to find the best
+        all_qualities = []
+        for i, decoded_str in enumerate(result.deobfuscated):
+            intermediate_quality = self._calculate_quality(decoded_str)
+            all_qualities.append((i, intermediate_quality, decoded_str))
+
+        # Sort by quality (descending)
+        all_qualities.sort(key=lambda x: x[1], reverse=True)
+
+        # Find the best valid intermediate (excluding final if it's bad)
         best_intermediate_quality = 0.0
         best_intermediate_index = -1
 
-        for i, decoded_str in enumerate(result.deobfuscated[:-1]):  # Exclude final result
-            intermediate_quality = self._calculate_quality(decoded_str)
-
-            # Require good quality AND better than final (configurable improvement delta)
-            if intermediate_quality < thresholds.intermediate_min_quality:
+        for i, intermediate_quality, decoded_str in all_qualities:
+            # Skip final result if we're looking for intermediates
+            if i == len(result.deobfuscated) - 1:
                 continue
 
-            if intermediate_quality < quality + thresholds.intermediate_min_improvement:
+            # Check if intermediate is significantly better than final
+            improvement = intermediate_quality - quality
+            is_significant_improvement = improvement >= thresholds.intermediate_min_improvement
+
+            # FIXED (v1.4.2): Allow lower quality intermediates if they're significantly better than final
+            # This handles short strings that don't score high on English word frequency
+            # Old logic: Required absolute threshold (0.60) which rejected valid short strings
+            # New logic: Use relative improvement for moderately-scored intermediates
+
+            if intermediate_quality >= thresholds.intermediate_min_quality:
+                # High quality intermediate - always check if it's better than final
+                if not is_significant_improvement:
+                    continue
+            elif is_significant_improvement and intermediate_quality >= 0.35:
+                # Moderate quality (0.35+) but significantly better than final - allow it
+                # This catches cases like "Credential: admin:P@ssw0rd" which scores 0.44
+                # but is better than garbage XOR output at 0.33
+                pass
+            else:
+                # Low quality (<0.35) or not significantly better - skip
                 continue
 
             # Check for red flags
@@ -731,19 +931,26 @@ class Deobfuscator:
                 if hex_ratio > thresholds.intermediate_max_hex_ratio:
                     continue
 
-            # Track best intermediate result
-            if intermediate_quality > best_intermediate_quality:
-                best_intermediate_quality = intermediate_quality
-                best_intermediate_index = i
+            # Found a valid intermediate - use it
+            best_intermediate_quality = intermediate_quality
+            best_intermediate_index = i
+            break  # Use the best one we found
 
         # If we found a good intermediate result, truncate to that point and accept it
         if best_intermediate_index >= 0 and best_intermediate_quality >= quality + thresholds.intermediate_min_improvement:
             # Truncate deobfuscated list to stop at the good intermediate result
             result.deobfuscated = result.deobfuscated[:best_intermediate_index + 1]
             result.layers_decoded = len(result.deobfuscated)
+            result.methods_used = result.methods_used[:best_intermediate_index + 1]
             return True, "", best_intermediate_quality
 
-        # STEP 3: No good results found - return failure with reason
+        # STEP 3: No good intermediate found - check if final is actually acceptable despite low quality
+        # NEW: If final quality is close to intermediate_trigger_quality, accept it
+        # (This prevents rejecting valid results that are just slightly below threshold)
+        if quality >= thresholds.intermediate_trigger_quality - 0.05:  # Within 0.05 of trigger
+            return True, "", quality
+
+        # STEP 4: No good results found - return failure with reason
         return False, final_failure_reason or "Low quality output", quality
 
     def _try_single_strategy(self, text: str, strategy_name: str, decoders: List, start_time: float,

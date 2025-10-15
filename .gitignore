@@ -171,6 +171,13 @@ test_hardset.py
 test_suite.py
 run_tests.py
 test_deepseek.py
+test_fixes.py
+test_custom_20.py
+test_hardset30_quick.py
+generate_test_cases.py
+test_auto_rotation.py
+test_progress_feedback.py
+quick_batch_test.py
 *hardset*.txt
 *hardset*.md
 *hardset*.zip
@@ -181,6 +188,7 @@ DEOBFUSCATION_V1.1_SUMMARY.md
 HARDSET_30_RESULTS.md
 HARDSET_NO_AES_GAP_ANALYSIS.md
 PRESET_IMPLEMENTATION.md
+PRESET_GUIDE.md
 preset_demo.py
 
 # Debug & Development Output

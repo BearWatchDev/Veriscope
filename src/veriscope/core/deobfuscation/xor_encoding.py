@@ -105,11 +105,13 @@ class MultiByteXORDecoder(BaseDecoder):
         self.compression_decoders = get_compression_decoders()
 
         # Common multi-byte keys
+        # EXPANDED (v1.4.2): Added 0xDEAD (common in malware samples)
         self.multibyte_keys = [
             bytes([0xAB, 0xCD]),
             bytes([0x12, 0x34]),
             bytes([0xFF, 0xFF]),
             bytes([0x00, 0xFF]),
+            bytes([0xDE, 0xAD]),              # 2-byte DEAD
             bytes([0xDE, 0xAD, 0xBE]),
             bytes([0xCA, 0xFE, 0xBA]),
             bytes([0xDE, 0xAD, 0xBE, 0xEF]),

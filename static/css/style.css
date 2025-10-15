@@ -420,10 +420,21 @@ pre {
     font-size: 13px;
     border: 1px solid var(--border-color);
     line-height: 1.6;
+    /* BUGFIX: Ensure long lines wrap instead of horizontal scrolling */
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
 }
 
 code {
     color: var(--accent-cyan);
+    /* BUGFIX: Ensure long text wraps properly and doesn't overflow GUI */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    max-width: 100%;
+    display: inline-block;
 }
 
 /* IOC Sections */

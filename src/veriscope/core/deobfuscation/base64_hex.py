@@ -112,7 +112,7 @@ class HexDecoder(BaseDecoder):
 
         Features:
         - Prefix removal (0x, \\x)
-        - Noise removal (non-hex chars)
+        - Noise removal (ALL non-hex chars) - handles obfuscation with mixed separators
         - Odd-length handling (prepend 0)
         - Compression detection (GZIP/zlib)
 
@@ -123,14 +123,18 @@ class HexDecoder(BaseDecoder):
             Decoded string, or empty string if not hex
         """
         try:
-            # Remove spaces and common prefixes
-            cleaned = text.replace(' ', '').replace('0x', '').replace('\\x', '')
+            # Remove ALL non-hex characters (v1.4.2 - more lenient for obfuscated hex)
+            # Handles tabs, dashes, equals, newlines, and other separator noise
+            import re
+            cleaned = re.sub(r'[^0-9a-fA-F]', '', text)
 
-            # Validation
+            # Validation - require at least 10 hex chars after cleaning
             if len(cleaned) < 10:
                 return ""
 
-            if not all(c in '0123456789abcdefABCDEF' for c in cleaned):
+            # Check hex ratio - at least 80% of original must be hex (prevents false positives)
+            hex_ratio = len(cleaned) / len(text) if len(text) > 0 else 0
+            if hex_ratio < 0.60:  # At least 60% hex chars in original
                 return ""
 
             # Handle odd-length hex strings by prepending '0'

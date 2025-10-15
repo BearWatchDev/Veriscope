@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from veriscope.core.engine import VeriscopeEngine
+from veriscope.core.deobfuscator import DeobfuscationConfig
 from veriscope.utils.report_generator import ReportGenerator
 
 
@@ -94,7 +95,7 @@ def main():
     parser.add_argument(
         '-v', '--version',
         action='version',
-        version='Veriscope v1.4.1'
+        version='Veriscope v1.5.0'
     )
 
     # Parse arguments
@@ -111,11 +112,21 @@ def main():
         print_banner()
 
     try:
+        # Progress callback for CLI (shows strategy/preset switches)
+        def cli_progress_callback(method, layer, total_layers, preview):
+            # Only show important messages (strategy/preset switches)
+            if any(keyword in method for keyword in ['Strategy:', 'Preset:', 'rotation', 'alternative']):
+                print(f"    {method}")
+
+        # Configure deobfuscation with progress callback
+        deob_config = DeobfuscationConfig(progress_callback=cli_progress_callback)
+
         # Initialize engine
         engine = VeriscopeEngine(
             min_string_length=args.min_length,
             entropy_threshold=args.entropy_threshold,
-            author=args.author
+            author=args.author,
+            deobfuscation_config=deob_config
         )
 
         # Quick scan mode
@@ -207,7 +218,7 @@ def print_banner():
  ╚╝ └─┘┴└─┴└─┘└─┘└─┘┴  └─┘
 
 Unified IOC + ATT&CK + YARA + Sigma Engine
-Version 1.4.1 | MIT License
+Version 1.5.0 | MIT License
 """
     print(banner)
 

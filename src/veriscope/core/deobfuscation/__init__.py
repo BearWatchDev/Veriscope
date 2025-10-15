@@ -102,15 +102,16 @@ def get_all_decoders(config=None):
         UnicodeEscapeDecoder(config),
         HTMLEntityDecoder(config),
         CharCodesDecoder(config),        # MUST come before base64 (numbers look like base64)
+        StringReversalDecoder(config),   # FIXED (v1.4.2): Detect reversed base64 strings
 
         # Standard decoders
         HexDecoder(config),
         UTF16LEDecoder(config),
+        URLDecoder(config),              # FIXED (v1.4.2): URL decode before ROT13
         ROT13Decoder(config),
         Base64Decoder(config),
         Base64URLDecoder(config),
         PowerShellBase64Decoder(config),
-        URLDecoder(config),
     ]
 
     # Add compression decoders (CRITICAL: must come early for magic byte detection)
@@ -126,10 +127,12 @@ def get_all_decoders(config=None):
         ])
 
     # Add XOR decoders if enabled
+    # FIXED (v1.4.2): Multi-byte XOR before single-byte XOR
+    # Multi-byte is more specific (small key list), single-byte is brute-force
     if config and config.xor_enabled:
         decoders.extend([
-            XORDecoder(config),
-            MultiByteXORDecoder(config),
+            MultiByteXORDecoder(config),     # Try specific multi-byte keys first
+            XORDecoder(config),              # Then try single-byte brute-force
         ])
 
         # Add advanced XOR decoders if available

@@ -13,11 +13,14 @@ class ROT13Decoder(BaseDecoder):
     """ROT13 Caesar cipher decoding with keyword detection"""
 
     # Class-level constants for better performance (avoid recreating on each decode)
+    # EXPANDED (v1.4.2): Added more malware/shell keywords for better detection
     COMMON_KEYWORDS = frozenset([
         'http', 'www', 'exe', 'dll', 'cmd', 'powershell', 'script',
         'user', 'config', 'token', 'shell', 'alert', 'process',
         'mail', 'from', 'subject', 'message', 'email', 'sender',
-        'recipient', 'attacker', 'example', 'update', 'urgent'
+        'recipient', 'attacker', 'example', 'update', 'urgent',
+        'bash', 'backdoor', 'bin', 'tmp', 'malware', 'payload',
+        'download', 'upload', 'reverse', 'netcat', 'connect'
     ])
     BASE64_ALPHABET = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
 
@@ -49,8 +52,14 @@ class ROT13Decoder(BaseDecoder):
         """
         try:
             # Don't trigger on Base64 (lots of +/= chars)
-            base64_chars_count = text.count('+') + text.count('/') + text.count('=')
-            if base64_chars_count > len(text) * 0.05:
+            # FIXED (v1.4.2): Only skip if we have actual Base64 indicators (+ or =), not just /
+            # Forward slash appears in file paths (/bin/bash), not indicative of Base64 alone
+            plus_count = text.count('+')
+            equals_count = text.count('=')
+            slash_count = text.count('/')
+
+            # Only skip if we have Base64 padding (=) or Base64-specific chars (+)
+            if (plus_count + equals_count) > len(text) * 0.05:
                 return ""
 
             # Don't trigger if input itself looks like base64 (would cause ROT13 → Base64 false positive)

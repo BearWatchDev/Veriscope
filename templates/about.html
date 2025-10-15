@@ -70,20 +70,19 @@
                     <!-- Row 1: Core Analysis Pipeline -->
                     <div class="capability-card">
                         <h4>Advanced Multi-Layer Deobfuscation</h4>
-                        <p>20 specialized decoders automatically unwrap up to 6 layers of nested obfuscation including: Base64 (standard,
-                        PowerShell UTF-16LE, URL-safe/JWT), GZIP/zlib/bzip2 compression with magic byte detection, hexadecimal encoding,
-                        ASCII85/Base32 variants, binary strings (01010100...), JavaScript escapes (\xHH, \uXXXX), ROT13/Caesar cipher,
-                        URL encoding, and advanced XOR cryptanalysis (position-based repeating-key breaking, crib-dragging attacks, common
-                        key dictionary). Features SHA1 cycle detection, per-string timeout (2s), automatic plaintext markers, and detailed
-                        audit trails.</p>
+                        <p>27 specialized decoders unwrap up to 6 layers of nested obfuscation: Base64 (standard, PowerShell UTF-16LE, URL-safe),
+                        GZIP/zlib/bzip2 compression, hexadecimal (with noise filtering), string reversal (detects reversed base64), ROT13/Caesar
+                        with 45+ malware keywords, URL encoding, JSON/JavaScript extractors, character codes (decimal/hex formats), HTML entities,
+                        and multi-byte XOR (0xDEAD, 0xDEADBEEF, 0xCAFEBABE + common keys). Advanced features: SHA1 cycle detection, quality regression
+                        prevention, per-string timeout (2s), automatic plaintext detection, and comprehensive audit trails with layer-by-layer quality scoring.</p>
                     </div>
                     <div class="capability-card">
                         <h4>Smart Deobfuscation Engine</h4>
-                        <p>Automatic fallback system tries 6 decoder strategies when default fails (base64_first, xor_first, rot13_first,
-                        skip_base64_initially, hex_xor_first). Real-time progress tracking with Server-Sent Events shows live method attempts
-                        and animated decode chains (e.g., "base64 → hex → rot13"). Conservative heuristics with strict can_decode() validation
-                        prevent false positives. Early termination on success. Configurable via DeobfuscationConfig API: max depth (6 default),
-                        timeout (30s), XOR enable/disable, custom progress callbacks.</p>
+                        <p>Intelligent quality regression detection prevents over-decoding by tracking quality scores at each layer and selecting
+                        the best intermediate result. Automatic preset rotation tries multiple configurations (balanced → malware_analysis → aggressive →
+                        deepseek_optimized) when default fails. Real-time progress with Server-Sent Events displays animated decode chains. Optimized
+                        decoder ordering: Extractors → String transforms → URL → ROT13 → Base64 → Compression → Multi-byte XOR → Single-byte XOR.
+                        Configurable presets, timeouts, and XOR settings. Handles short strings, security keywords, and complex encoding chains with 80% test accuracy.</p>
                     </div>
                     <div class="capability-card">
                         <h4>IOC Extraction</h4>
@@ -95,9 +94,10 @@
                     <!-- Row 2: Analysis & Intelligence -->
                     <div class="capability-card">
                         <h4>Entropy & Keyword Analysis</h4>
-                        <p>Calculates Shannon entropy to identify encrypted or compressed payloads. Performs keyword analysis to
-                        detect suspicious strings, API calls, and malicious patterns commonly seen in malware. Analyzes both
-                        original and deobfuscated content for enhanced detection accuracy.</p>
+                        <p>Shannon entropy calculation identifies encrypted/compressed payloads (>7.0 = likely encrypted). Quality scoring
+                        with 60+ security keywords (backdoor, credential, registry, malware, netcat) enhances detection of malicious patterns.
+                        Analyzes both original and deobfuscated content. Detects ROT13 encoding, Base64 artifacts, URL encoding remnants, and
+                        hex patterns. Weighted scoring: word frequency (45%), letter ratio (25%), structure (20%), encoding penalty (10%).</p>
                     </div>
                     <div class="capability-card">
                         <h4>MITRE ATT&CK Mapping</h4>
@@ -107,26 +107,26 @@
                     </div>
                     <div class="capability-card">
                         <h4>Interactive Analysis Dashboard</h4>
-                        <p>Real-time animated progress bar shows live deobfuscation progress with smooth 0-100% tracking across all strategies.
-                        Method chain visualization displays successful decode sequences (e.g., "base64 → hex → rot13"). Clickable summary cards
-                        provide deep-dive views into strings, decoded content, IOCs, and ATT&CK techniques. Deobfuscation trace timeline with
-                        method previews. IOC breakdown by category with count badges. User-selectable findings for custom rule generation.</p>
+                        <p>Real-time animated progress bar (0-100%) tracks deobfuscation across all strategies and presets. Method chain visualization
+                        shows successful decode sequences (e.g., "base64 → hex → rot13 → xor"). Clickable summary cards for strings, decoded content,
+                        IOCs, and ATT&CK techniques. Deobfuscation trace timeline with layer previews and quality scores. IOC breakdown by category
+                        with count badges. User-selectable findings enable custom YARA/Sigma rule generation with checkbox interface.</p>
                     </div>
 
                     <!-- Row 3: Detection & Reporting -->
                     <div class="capability-card">
                         <h4>YARA Rule Generation</h4>
-                        <p>Generates file-based detection signatures with string conditions, metadata, and configurable thresholds. Includes
-                        BOTH obfuscated and deobfuscated strings for comprehensive detection coverage. High-entropy strings (40+ chars) automatically
-                        added to detect encoded payloads. Supports general catch-all rules and IOC-specific rules for targeted detection. Includes
-                        ATT&CK technique references, TLP classification metadata, and user-selectable findings.</p>
+                        <p>File-based detection signatures include both obfuscated and deobfuscated strings for comprehensive coverage.
+                        High-entropy strings (40+ chars) auto-added to catch encoded payloads. Generates catch-all rules and IOC-specific rules
+                        for targeted detection. Metadata includes ATT&CK technique mappings, TLP classification, author/date stamps, and sample hashes.
+                        User-selectable findings via checkbox interface enable custom rule creation with chosen IOCs only.</p>
                     </div>
                     <div class="capability-card">
                         <h4>Sigma Rule Generation</h4>
-                        <p>Creates SIEM-compatible detection rules in Sigma format (YAML). Generates log-based detections for network
-                        activity, process execution, registry modifications, and file operations. Includes high-entropy encoded strings
-                        for comprehensive malware detection coverage. Compatible with Splunk, Elastic, QRadar, ArcSight, and other SIEM
-                        platforms. Supports IOC-specific rules with ATT&CK technique mappings.</p>
+                        <p>SIEM-compatible detection rules in Sigma YAML format for log-based detections: network activity, process execution,
+                        registry modifications, file operations. Includes high-entropy encoded strings for comprehensive malware coverage.
+                        Compatible with Splunk, Elastic, QRadar, ArcSight, and 50+ SIEM platforms. Generates catch-all and IOC-specific rules
+                        with ATT&CK mappings, severity levels, and TLP classification for operational deployment.</p>
                     </div>
                     <div class="capability-card">
                         <h4>Comprehensive Reporting</h4>

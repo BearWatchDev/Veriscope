@@ -5,6 +5,370 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About - Veriscope</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* About Page Specific Styles */
+        .about-hero {
+            text-align: center;
+            padding: 60px 20px;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .about-hero h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .about-hero p {
+            font-size: 1.2em;
+            color: var(--text-secondary);
+            max-width: 950px;
+            margin: 0 auto 30px;
+            line-height: 1.8;
+        }
+
+        .time-highlight {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: bold;
+            font-size: 1.3em;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+        }
+
+        .version-badge {
+            display: inline-block;
+            background: var(--accent-green);
+            color: var(--bg-primary);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            margin: 40px 0;
+        }
+
+        .feature-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 25px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-box:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 4px 20px rgba(0, 212, 255, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .feature-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--accent-green), var(--accent-cyan));
+        }
+
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+            display: block;
+            color: var(--accent-cyan);
+            text-shadow:
+                0 0 10px rgba(0, 212, 255, 0.5),
+                0 0 20px rgba(0, 212, 255, 0.3),
+                0 0 30px rgba(0, 212, 255, 0.2);
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                text-shadow:
+                    0 0 10px rgba(0, 212, 255, 0.5),
+                    0 0 20px rgba(0, 212, 255, 0.3),
+                    0 0 30px rgba(0, 212, 255, 0.2);
+            }
+            50% {
+                text-shadow:
+                    0 0 15px rgba(0, 212, 255, 0.7),
+                    0 0 25px rgba(0, 212, 255, 0.5),
+                    0 0 40px rgba(0, 212, 255, 0.3);
+            }
+        }
+
+        .feature-box h3 {
+            color: var(--accent-green);
+            margin: 0 0 12px 0;
+            font-size: 1.15em;
+        }
+
+        .feature-box p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin: 0;
+            font-size: 0.88em;
+        }
+
+        .feature-box ul {
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin: 10px 0 0 0;
+            padding-left: 18px;
+            font-size: 0.88em;
+        }
+
+        .feature-box ul li {
+            margin-bottom: 5px;
+        }
+
+        .tech-specs {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 30px;
+            margin: 40px 0;
+        }
+
+        .tech-specs h2 {
+            color: var(--accent-cyan);
+            margin-top: 0;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .specs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .spec-item {
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 3px solid var(--accent-green);
+        }
+
+        .spec-label {
+            color: var(--accent-cyan);
+            font-weight: bold;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .spec-value {
+            color: var(--text-primary);
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+
+        .decoder-section {
+            background: var(--bg-card);
+            padding: 25px;
+            border-radius: 8px;
+            border-left: 3px solid var(--accent-cyan);
+            margin-top: 20px;
+        }
+
+        .decoder-section h3 {
+            color: var(--accent-green);
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .decoder-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .decoder-category {
+            background: var(--bg-secondary);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .decoder-category h4 {
+            color: var(--accent-cyan);
+            font-size: 0.9em;
+            margin: 0 0 10px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .decoder-category ul {
+            margin: 0;
+            padding-left: 18px;
+            list-style: none;
+        }
+
+        .decoder-category ul li {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+            line-height: 1.7;
+            position: relative;
+            padding-left: 12px;
+        }
+
+        .decoder-category ul li::before {
+            content: '◆';
+            position: absolute;
+            left: -5px;
+            color: var(--accent-green);
+            font-size: 0.7em;
+        }
+
+        .info-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 30px;
+            margin: 25px 0;
+        }
+
+        .info-section h2 {
+            color: var(--accent-green);
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .info-section p {
+            color: var(--text-secondary);
+            line-height: 1.8;
+            margin-bottom: 15px;
+        }
+
+        .workflow-comparison {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .workflow-box {
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .workflow-box.traditional {
+            border-left: 3px solid var(--accent-warning);
+        }
+
+        .workflow-box.veriscope {
+            border-left: 3px solid var(--accent-green);
+        }
+
+        .workflow-box h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .workflow-box.traditional h4 {
+            color: var(--accent-warning);
+        }
+
+        .workflow-box.veriscope h4 {
+            color: var(--accent-green);
+        }
+
+        .warning-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .warning-card {
+            background: linear-gradient(135deg, rgba(255, 170, 0, 0.05), rgba(255, 170, 0, 0.02));
+            border: 1px solid rgba(255, 170, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid var(--accent-warning);
+        }
+
+        .warning-card h4 {
+            color: var(--accent-warning);
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+        }
+
+        .warning-card p {
+            color: var(--text-secondary);
+            margin: 0;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+
+        .contact-box {
+            text-align: center;
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 40px;
+            margin: 30px 0;
+        }
+
+        .contact-box a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            font-size: 1.2em;
+            font-weight: bold;
+            transition: color 0.3s ease;
+        }
+
+        .contact-box a:hover {
+            color: var(--accent-green);
+        }
+
+        .stat-highlight {
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        @media (max-width: 768px) {
+            .about-hero h1 {
+                font-size: 1.8em;
+            }
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            .specs-grid,
+            .decoder-grid,
+            .workflow-comparison,
+            .warning-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -26,172 +390,317 @@
         </header>
 
         <main>
-            <h2>About Veriscope</h2>
-
-            <div class="about-section">
-                <h3>What is Veriscope?</h3>
+            <!-- Hero Section -->
+            <div class="about-hero">
+                <h1>Automated Malware Analysis & Detection Engineering</h1>
                 <p>
-                    Veriscope is a specialized malware analysis and detection engineering platform designed for security analysts,
-                    threat hunters, and SOC teams. It automates the tedious, time-consuming process of transforming raw malware
-                    artifacts into actionable detection rules and threat intelligence.
+                    Transform raw malware artifacts into actionable detection intelligence. Veriscope automates the entire
+                    analysis workflow—from multi-layer deobfuscation to YARA/Sigma rule generation—delivering comprehensive
+                    results in <span class="time-highlight">seconds instead of hours</span>. What traditionally takes analysts
+                    4-6 hours of manual work is now completed in under 10 seconds with superior accuracy.
                 </p>
-                <p>
-                    Traditional malware analysis workflows require analysts to manually extract strings, identify indicators of
-                    compromise, research MITRE ATT&CK techniques, and hand-craft detection rules for YARA and SIEM platforms.
-                    This process can take hours or even days per sample. Veriscope compresses this entire workflow into a single
-                    automated pipeline, delivering comprehensive analysis results in seconds.
-                </p>
+                <div class="version-badge">v1.6.0 | MIT License | Open Source</div>
             </div>
 
-            <div class="about-section">
-                <h3>The Challenge</h3>
-                <p>
-                    Modern malware increasingly relies on sophisticated obfuscation techniques—Base64 encoding (standard, URL-safe/JWT),
-                    GZIP/zlib/bzip2 compression, hexadecimal encoding, ASCII85/Base32 variants, binary string encoding, JavaScript escapes
-                    (\xHH, \uXXXX), repeating-key XOR ciphers, ROT13/Caesar ciphers, URL encoding, PowerShell UTF-16LE obfuscation, and
-                    complex multi-layer encoding chains (often 6+ layers deep). Analysts waste valuable time manually decoding these
-                    layers before they can even begin their investigation.
-                </p>
-                <p>
-                    Once decoded, extracting actionable IOCs (URLs, IP addresses, domains, registry keys, mutex names, file paths,
-                    cryptocurrency addresses) requires pattern matching expertise and careful validation. Mapping these behaviors to
-                    MITRE ATT&CK techniques demands deep framework knowledge. Finally, writing production-ready YARA and Sigma rules
-                    requires specialized syntax knowledge and careful testing.
-                </p>
-                <p>
-                    Veriscope eliminates these bottlenecks by automating the entire chain: advanced multi-layer deobfuscation →
-                    IOC extraction → ATT&CK mapping → rule generation.
-                </p>
+            <!-- Key Features -->
+            <div class="features-grid">
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Advanced Multi-Layer Deobfuscation</h3>
+                    <p>
+                        <span class="stat-highlight">27 specialized decoders</span> unwrap up to 6 layers of nested obfuscation automatically.
+                        Handles Base64 variants, GZIP/zlib/bzip2 compression, hexadecimal, string reversal, ROT13, multi-byte XOR patterns,
+                        URL encoding, HTML entities, PowerShell UTF-16LE, and JavaScript wrappers. SHA1-based cycle detection prevents infinite loops.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Intelligent Quality Detection</h3>
+                    <p>
+                        Quality regression system tracks decoding quality at each layer with 45% word frequency, 25% letter ratio, 20% structure analysis,
+                        and 10% encoding penalty weighting. Automatically stops at quality peaks to prevent over-decoding. Detects 45+ malware-specific keywords
+                        for accurate plaintext identification.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Comprehensive IOC Extraction</h3>
+                    <p>
+                        Extracts actionable indicators from both original and deobfuscated content with regex-based pattern matching:
+                        URLs, IPv4 addresses, domains, email addresses, Windows file paths, registry keys, mutex names, and cryptocurrency
+                        wallet addresses (BTC/ETH/XMR). High-entropy strings (40+ chars) automatically flagged for encoded payloads.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>MITRE ATT&CK Mapping</h3>
+                    <p>
+                        Automatic technique mapping with confidence scoring across 8 major tactics: persistence, privilege escalation,
+                        defense evasion, credential access, discovery, lateral movement, command & control, and exfiltration. Interactive
+                        modal interface groups findings by tactic with technique IDs and direct links to MITRE documentation.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Real-Time Progress Tracking</h3>
+                    <p>
+                        Server-Sent Events (SSE) stream live deobfuscation progress with animated decode chains showing method sequences
+                        (e.g., "base64 → hex → rot13 → xor"). Clickable summary cards display layer-by-layer quality scores. Progress bar
+                        with granular decimal updates (e.g., layer 2.3 = 30% through layer 2 methods).
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>YARA Rule Generation</h3>
+                    <p>
+                        File-based detection signatures include both obfuscated and deobfuscated strings for multi-stage coverage. High-entropy
+                        strings auto-added for encoded payload detection. Comprehensive metadata with ATT&CK technique mappings, TLP classification,
+                        sample SHA256 hashes, and severity ratings. Generates both catch-all and individual IOC-specific rules.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Sigma Rule Generation</h3>
+                    <p>
+                        SIEM-compatible detection rules in YAML format covering network activity (URLs, IPs), process execution (commands, scripts),
+                        registry modifications, and file operations. Compatible with <span class="stat-highlight">50+ SIEM platforms</span> including
+                        Splunk, Elastic, QRadar, ArcSight, and Microsoft Sentinel. Includes severity levels and operational metadata.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Modular Preset System</h3>
+                    <p>
+                        Five configurable presets optimize for different scenarios: conservative (strict validation), balanced (default),
+                        aggressive (deeper decoding), malware_analysis (real-world samples), and research-optimized (complex multi-layer).
+                        Automatic preset rotation tries multiple strategies when default fails, selecting best result by quality score.
+                    </p>
+                </div>
+
+                <div class="feature-box">
+                    <span class="feature-icon">◆</span>
+                    <h3>Comprehensive Reporting</h3>
+                    <p>
+                        Multi-format output includes Markdown reports (human-readable analysis), JSON (machine-readable full results), YARA rules
+                        (file-based detection), and Sigma rules (SIEM integration). Detailed trace logs show method chains with success/failure
+                        indicators. Web GUI provides tabbed interface with downloadable artifacts for each output type.
+                    </p>
+                </div>
             </div>
 
-            <div class="about-section">
-                <h3>Core Capabilities</h3>
-                <div class="capability-grid">
-                    <!-- Row 1: Core Analysis Pipeline -->
-                    <div class="capability-card">
-                        <h4>Advanced Multi-Layer Deobfuscation</h4>
-                        <p>27 specialized decoders unwrap up to 6 layers of nested obfuscation: Base64 (standard, PowerShell UTF-16LE, URL-safe),
-                        GZIP/zlib/bzip2 compression, hexadecimal (with noise filtering), string reversal (detects reversed base64), ROT13/Caesar
-                        with 45+ malware keywords, URL encoding, JSON/JavaScript extractors, character codes (decimal/hex formats), HTML entities,
-                        and multi-byte XOR (0xDEAD, 0xDEADBEEF, 0xCAFEBABE + common keys). Advanced features: SHA1 cycle detection, quality regression
-                        prevention, per-string timeout (2s), automatic plaintext detection, and comprehensive audit trails with layer-by-layer quality scoring.</p>
+            <!-- Technical Specifications -->
+            <div class="tech-specs">
+                <h2>Technical Specifications</h2>
+                <div class="specs-grid">
+                    <div class="spec-item">
+                        <div class="spec-label">Platform</div>
+                        <div class="spec-value">Linux-first design<br>Cross-platform (Windows, macOS)<br>Python 3.8+ required</div>
                     </div>
-                    <div class="capability-card">
-                        <h4>Smart Deobfuscation Engine</h4>
-                        <p>Intelligent quality regression detection prevents over-decoding by tracking quality scores at each layer and selecting
-                        the best intermediate result. Automatic preset rotation tries multiple configurations (balanced → malware_analysis → aggressive →
-                        deepseek_optimized) when default fails. Real-time progress with Server-Sent Events displays animated decode chains. Optimized
-                        decoder ordering: Extractors → String transforms → URL → ROT13 → Base64 → Compression → Multi-byte XOR → Single-byte XOR.
-                        Configurable presets, timeouts, and XOR settings. Handles short strings, security keywords, and complex encoding chains with 80% test accuracy.</p>
+                    <div class="spec-item">
+                        <div class="spec-label">Dependencies</div>
+                        <div class="spec-value">Flask (Web GUI)<br>PyYAML (Sigma rules)<br>Minimal external footprint</div>
                     </div>
-                    <div class="capability-card">
-                        <h4>IOC Extraction</h4>
-                        <p>Extracts URLs, IPv4 addresses, domains, email addresses, registry keys, Windows mutex names, file paths,
-                        and cryptocurrency wallet addresses. Uses regex patterns validated against real-world malware samples.
-                        Operates on both original and decoded strings for comprehensive IOC discovery.</p>
+                    <div class="spec-item">
+                        <div class="spec-label">Performance</div>
+                        <div class="spec-value">1-10MB samples in < 5 seconds<br>71k samples/sec batch processing<br>Real-time SSE progress updates</div>
                     </div>
+                    <div class="spec-item">
+                        <div class="spec-label">Analysis</div>
+                        <div class="spec-value">Static analysis only<br>No code execution<br>SHA1 cycle detection<br>1MB input size limit</div>
+                    </div>
+                    <div class="spec-item">
+                        <div class="spec-label">Interfaces</div>
+                        <div class="spec-value">CLI (batch processing)<br>Web GUI (interactive)<br>REST API (experimental)</div>
+                    </div>
+                    <div class="spec-item">
+                        <div class="spec-label">Configuration</div>
+                        <div class="spec-value">5 modular presets<br>Automatic preset rotation<br>6-layer depth (configurable to 10)</div>
+                    </div>
+                </div>
 
-                    <!-- Row 2: Analysis & Intelligence -->
-                    <div class="capability-card">
-                        <h4>Entropy & Keyword Analysis</h4>
-                        <p>Shannon entropy calculation identifies encrypted/compressed payloads (>7.0 = likely encrypted). Quality scoring
-                        with 60+ security keywords (backdoor, credential, registry, malware, netcat) enhances detection of malicious patterns.
-                        Analyzes both original and deobfuscated content. Detects ROT13 encoding, Base64 artifacts, URL encoding remnants, and
-                        hex patterns. Weighted scoring: word frequency (45%), letter ratio (25%), structure (20%), encoding penalty (10%).</p>
-                    </div>
-                    <div class="capability-card">
-                        <h4>MITRE ATT&CK Mapping</h4>
-                        <p>Maps detected behaviors to MITRE ATT&CK techniques with confidence scoring based on match counts. Covers
-                        persistence, privilege escalation, defense evasion, credential access, discovery, lateral movement, command
-                        and control, and exfiltration tactics. Interactive modal interface groups techniques by tactic for easy review.</p>
-                    </div>
-                    <div class="capability-card">
-                        <h4>Interactive Analysis Dashboard</h4>
-                        <p>Real-time animated progress bar (0-100%) tracks deobfuscation across all strategies and presets. Method chain visualization
-                        shows successful decode sequences (e.g., "base64 → hex → rot13 → xor"). Clickable summary cards for strings, decoded content,
-                        IOCs, and ATT&CK techniques. Deobfuscation trace timeline with layer previews and quality scores. IOC breakdown by category
-                        with count badges. User-selectable findings enable custom YARA/Sigma rule generation with checkbox interface.</p>
-                    </div>
+                <!-- Decoder Capabilities -->
+                <div class="decoder-section">
+                    <h3>Complete Decoder & Strategy Catalog</h3>
+                    <div class="decoder-grid">
+                        <div class="decoder-category">
+                            <h4>Extraction</h4>
+                            <ul>
+                                <li>JSON payload extraction</li>
+                                <li>JavaScript atob() unwrapping</li>
+                                <li>JavaScript btoa() detection</li>
+                            </ul>
+                        </div>
 
-                    <!-- Row 3: Detection & Reporting -->
-                    <div class="capability-card">
-                        <h4>YARA Rule Generation</h4>
-                        <p>File-based detection signatures include both obfuscated and deobfuscated strings for comprehensive coverage.
-                        High-entropy strings (40+ chars) auto-added to catch encoded payloads. Generates catch-all rules and IOC-specific rules
-                        for targeted detection. Metadata includes ATT&CK technique mappings, TLP classification, author/date stamps, and sample hashes.
-                        User-selectable findings via checkbox interface enable custom rule creation with chosen IOCs only.</p>
-                    </div>
-                    <div class="capability-card">
-                        <h4>Sigma Rule Generation</h4>
-                        <p>SIEM-compatible detection rules in Sigma YAML format for log-based detections: network activity, process execution,
-                        registry modifications, file operations. Includes high-entropy encoded strings for comprehensive malware coverage.
-                        Compatible with Splunk, Elastic, QRadar, ArcSight, and 50+ SIEM platforms. Generates catch-all and IOC-specific rules
-                        with ATT&CK mappings, severity levels, and TLP classification for operational deployment.</p>
-                    </div>
-                    <div class="capability-card">
-                        <h4>Comprehensive Reporting</h4>
-                        <p>Generates structured Markdown reports with executive summaries, detailed deobfuscation traces, IOC breakdowns,
-                        ATT&CK technique mappings, and detection rule templates. Export complete analysis results in JSON format for
-                        integration with threat intelligence platforms. One-click download of individual YARA/Sigma rules or complete
-                        analysis packages for incident response documentation.</p>
+                        <div class="decoder-category">
+                            <h4>String Transforms</h4>
+                            <ul>
+                                <li>Binary string (b"..." format)</li>
+                                <li>Hex escape sequences (\x41)</li>
+                                <li>Unicode escapes (\u0041)</li>
+                                <li>HTML entity decoding</li>
+                                <li>String reversal detection</li>
+                            </ul>
+                        </div>
+
+                        <div class="decoder-category">
+                            <h4>Encoding Schemes</h4>
+                            <ul>
+                                <li>Base64 (standard RFC 4648)</li>
+                                <li>Base64 URL-safe variant</li>
+                                <li>Hexadecimal (with noise tolerance)</li>
+                                <li>URL percent encoding</li>
+                                <li>ROT13 cipher (45+ keywords)</li>
+                                <li>Character code arrays</li>
+                            </ul>
+                        </div>
+
+                        <div class="decoder-category">
+                            <h4>Compression</h4>
+                            <ul>
+                                <li>GZIP (magic: 1f 8b)</li>
+                                <li>zlib (magic: 78 9c/da)</li>
+                                <li>bzip2 (magic: 42 5a)</li>
+                                <li>Automatic format detection</li>
+                            </ul>
+                        </div>
+
+                        <div class="decoder-category">
+                            <h4>XOR Encryption</h4>
+                            <ul>
+                                <li>Single-byte (256-key brute-force)</li>
+                                <li>Multi-byte repeating keys</li>
+                                <li>Common patterns (0xDEAD, 0xDEADBEEF, 0xCAFEBABE)</li>
+                                <li>Printable ratio validation</li>
+                            </ul>
+                        </div>
+
+                        <div class="decoder-category">
+                            <h4>Platform-Specific</h4>
+                            <ul>
+                                <li>PowerShell Base64 (UTF-16LE)</li>
+                                <li>Windows UTF-16LE encoding</li>
+                                <li>Latin-1 binary preservation</li>
+                            </ul>
+                        </div>
+
+                        <div class="decoder-category">
+                            <h4>Quality Control</h4>
+                            <ul>
+                                <li>Regression detection (stops at quality peaks)</li>
+                                <li>Intermediate layer validation</li>
+                                <li>Relative vs absolute thresholds</li>
+                                <li>Encoding artifact penalties</li>
+                            </ul>
+                        </div>
+
+                        <div class="decoder-category">
+                            <h4>Strategy Options</h4>
+                            <ul>
+                                <li>Sequential (ordered pipeline)</li>
+                                <li>Aggressive (all methods)</li>
+                                <li>Targeted (specific decoders)</li>
+                                <li>Fallback chains with rotation</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="about-section">
-                <h3>Technical Architecture</h3>
-                <ul class="tech-list">
-                    <li><strong>Version:</strong> 1.5.0</li>
-                    <li><strong>License:</strong> MIT Open Source</li>
-                    <li><strong>Platform:</strong> Linux-first design, cross-platform compatible (Windows, macOS)</li>
-                    <li><strong>Dependencies:</strong> Minimal footprint—Python 3.8+ standard library, Flask, PyYAML</li>
-                    <li><strong>Performance:</strong> Processes typical malware samples (1-10MB) in under 5 seconds</li>
-                    <li><strong>Interfaces:</strong> Command-line tool, Web GUI with real-time progress tracking, REST API (for integration)</li>
-                    <li><strong>Deobfuscation:</strong> 20 specialized decoders, 6 smart strategies with automatic fallback, 6-layer depth (configurable), SHA1 cycle detection, 30s timeout, Server-Sent Events for live progress</li>
-                </ul>
-            </div>
+            <!-- What Makes It Different -->
+            <div class="info-section">
+                <h2>What Makes Veriscope Different?</h2>
+                <div class="workflow-comparison">
+                    <div class="workflow-box traditional">
+                        <h4>Traditional Workflow</h4>
+                        <p style="color: var(--text-secondary); font-size: 0.9em; line-height: 1.7;">
+                            Manual string extraction → Manual deobfuscation (trial-and-error with CyberChef) → Manual IOC extraction
+                            (regex writing) → Manual ATT&CK research (MITRE documentation) → Manual rule writing (YARA/Sigma syntax)
+                            → Manual validation and testing
+                        </p>
+                        <p style="color: var(--accent-warning); font-weight: bold; margin-top: 15px;">
+                            ⏱ 4-6 hours per sample
+                        </p>
+                    </div>
 
-            <div class="about-section">
-                <h3>Security & Usage Guidelines</h3>
-                <div class="warning-box">
-                    <h4>Static Analysis Only</h4>
-                    <p>Veriscope performs static text-based analysis exclusively. It does NOT execute binaries, run sandboxed
-                    environments, or perform dynamic analysis. All operations are read-only and safe for production analyst workstations.</p>
+                    <div class="workflow-box veriscope">
+                        <h4>Veriscope Workflow</h4>
+                        <p style="color: var(--text-secondary); font-size: 0.9em; line-height: 1.7;">
+                            Upload sample → Automatic multi-layer deobfuscation (27 decoders, quality tracking) → Automatic IOC extraction
+                            (8 categories) → Automatic ATT&CK mapping (confidence scoring) → Automatic rule generation (YARA + Sigma) →
+                            Download production-ready artifacts
+                        </p>
+                        <p style="color: var(--accent-green); font-weight: bold; margin-top: 15px;">
+                            ⚡ 5-10 seconds per sample
+                        </p>
+                    </div>
                 </div>
-                <div class="warning-box">
-                    <h4>Detection Rules are Templates</h4>
-                    <p>Generated YARA and Sigma rules are TEMPLATES designed to accelerate detection engineering. They require
-                    human review, tuning, and validation before deployment in production environments. Always test rules in a
-                    controlled environment first to avoid false positives.</p>
-                </div>
-                <div class="warning-box">
-                    <h4>ATT&CK Mapping Limitations</h4>
-                    <p>Technique mappings are heuristic-based and derived from keyword matching and pattern detection. They are NOT
-                    definitive behavioral analysis. Always correlate with additional threat intelligence, sandbox reports, and manual
-                    analysis before making attribution decisions.</p>
-                </div>
-            </div>
-
-            <div class="about-section">
-                <h3>Responsible Use</h3>
-                <p class="ethics-statement">
-                    Veriscope is built for defensive security operations. Use it to analyze threats, build detections,
-                    and protect your networks. Always ensure compliance with applicable laws and regulations.
+                <p style="margin-top: 30px;">
+                    Modern malware uses sophisticated obfuscation chains (6+ layers deep) combining Base64, GZIP compression, hex encoding,
+                    multi-byte XOR ciphers, ROT13, and custom encoding schemes. Veriscope's intelligent deobfuscation engine with quality
+                    regression detection, automatic preset rotation, and 27 specialized decoders handles these complex chains automatically—saving
+                    security analysts from hours of tedious, error-prone manual work while delivering superior accuracy and consistency.
                 </p>
             </div>
 
-            <div class="about-section">
-                <h3>Contact</h3>
+            <!-- Important Information -->
+            <div class="info-section">
+                <h2>Important Information</h2>
+                <div class="warning-grid">
+                    <div class="warning-card">
+                        <h4>Static Analysis Only</h4>
+                        <p>
+                            Veriscope performs text-based analysis exclusively. No code execution, sandboxing, or dynamic analysis.
+                            Safe for production workstations. All processing happens through pattern matching and decoding algorithms—malware
+                            samples are never executed.
+                        </p>
+                    </div>
+                    <div class="warning-card">
+                        <h4>Detection Rules are Templates</h4>
+                        <p>
+                            Generated YARA/Sigma rules require human review and validation before production deployment. Always test
+                            in controlled environments first. Rules provide a strong starting point but should be tuned for your specific
+                            environment and threat model.
+                        </p>
+                    </div>
+                    <div class="warning-card">
+                        <h4>ATT&CK Mapping Limitations</h4>
+                        <p>
+                            Technique mappings are heuristic-based using keyword matching against MITRE's framework. Correlate with additional
+                            threat intelligence, sandbox analysis, and behavioral telemetry for accurate attribution. Confidence scores indicate
+                            reliability of each mapping.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Responsible Use -->
+            <div class="info-section" style="text-align: center;">
+                <h2>Responsible Use</h2>
+                <p style="font-size: 1.1em; color: var(--text-primary);">
+                    Veriscope is built exclusively for <strong style="color: var(--accent-green);">defensive security operations</strong>.
+                    Use it to analyze threats, build detections, protect networks, and accelerate incident response. Always ensure compliance
+                    with applicable laws and regulations. This tool is designed to empower security teams—not threat actors.
+                </p>
+            </div>
+
+            <!-- Contact -->
+            <div class="contact-box">
+                <h2 style="color: var(--accent-cyan); margin-bottom: 20px;">Get in Touch</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Questions, feedback, or bug reports?
+                </p>
                 <p>
-                    Questions, feedback, or bug reports? Feel free to reach out:
+                    <a href="mailto:BearWatchDev@pm.me">BearWatchDev@pm.me</a>
                 </p>
-                <p style="text-align: center; margin-top: 20px;">
-                    <strong style="color: var(--accent-green); font-size: 1.1em;">
-                        📧 <a href="mailto:BearWatchDev@pm.me" style="color: var(--accent-cyan); text-decoration: none;">BearWatchDev@pm.me</a>
-                    </strong>
-                </p>
-                <p style="text-align: center; margin-top: 15px; color: var(--text-secondary);">
-                    Contributions welcome via GitHub.
+                <p style="color: var(--text-secondary); margin-top: 20px; font-size: 0.9em;">
+                    Contributions welcome via <a href="https://github.com/BearWatchDev/Veriscope" target="_blank">GitHub</a>
                 </p>
             </div>
         </main>
@@ -200,7 +709,7 @@
             <div class="made-with-love">
                 Made with <span class="heart">❤</span> for the cybersecurity community
             </div>
-            <p>Veriscope v1.5.0 | MIT License | For ethical & defensive security operations only</p>
+            <p>Veriscope v1.6.0 | MIT License | For ethical & defensive security operations only</p>
         </footer>
     </div>
 </body>

@@ -1,6 +1,7 @@
 // Veriscope Web Interface JavaScript
 
 let currentResults = null;
+window.analysisData = null; // Store analysis data for deferred display (make it explicitly global)
 let selectedIOCs = {
     urls: [],
     ips: [],
@@ -21,9 +22,6 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     const loadingDiv = document.getElementById('loading');
     const resultsDiv = document.getElementById('results');
     const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
-    const progressPreview = document.getElementById('progress-preview');
 
     // Generate session ID for progress tracking
     const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -35,152 +33,172 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         uploadSection.style.display = 'none';
     }
 
-    // Show loading and progress, hide results
-    loadingDiv.style.display = 'block';
+    // Check if auto-show results is enabled
+    const autoShowResults = document.getElementById('auto-show-results').checked;
+
+    // Show loading, progress (if manual review), and hide results
+    loadingDiv.classList.remove('fade-out'); // Reset fade animation if re-running
     resultsDiv.style.display = 'none';
+
+    // Clear previous activity feed and reset stats cards
+    const activityFeed = document.getElementById('activity-feed');
+    const viewResultsBtn = document.getElementById('view-results-btn');
+    const statStrategy = document.getElementById('stat-strategy');
+    const statMethod = document.getElementById('stat-method');
+    const statLayers = document.getElementById('stat-layers');
+
+    if (activityFeed) {
+        activityFeed.innerHTML = '<div class="activity-item info"><span class="icon">◆</span><span>Starting analysis...</span></div>';
+    }
+    if (viewResultsBtn) {
+        viewResultsBtn.style.display = 'none';
+    }
+    // Reset stats cards
+    if (statStrategy) statStrategy.textContent = 'balanced';
+    if (statMethod) statMethod.textContent = '—';
+    if (statLayers) statLayers.textContent = '0';
+
+    // Show appropriate UI based on checkbox
     if (progressContainer) {
-        progressContainer.style.display = 'block';
-        progressBar.style.width = '0%';
-        progressBar.style.transition = 'none'; // Reset transition
-        progressText.textContent = 'Starting analysis...';
-        progressPreview.textContent = ''; // Clear previous method chain
+        progressContainer.classList.remove('slide-up'); // Reset slide animation
+
+        if (autoShowResults) {
+            // Auto-show mode: Show only spinner, hide activity feed
+            loadingDiv.style.display = 'block';
+            progressContainer.style.display = 'none';
+        } else {
+            // Manual review mode: Show both spinner AND activity feed side-by-side
+            loadingDiv.style.display = 'block';
+            progressContainer.style.display = 'block';
+        }
+    } else {
+        loadingDiv.style.display = 'block';
     }
 
     // Start listening for progress updates
     const eventSource = new EventSource(`/progress/${sessionId}`);
-
     let progressCompleted = false;
-    let methodChain = []; // Track the chain of successful methods (reset for each upload)
-    let updateQueue = []; // Queue for delayed updates (reset for each upload)
-    let isProcessingQueue = false;
-    let lastProgressValue = 0; // Track last progress to prevent backwards movement
+    let analysisData = null; // Store data for later display
+    let currentLayerCount = 0;
 
-    // Function to process queued updates with delay
-    const processUpdateQueue = () => {
-        if (isProcessingQueue || updateQueue.length === 0) {
-            return;
-        }
+    // Helper function to update stats cards
+    function updateStatsCards(message) {
+        const statStrategy = document.getElementById('stat-strategy');
+        const statMethod = document.getElementById('stat-method');
+        const statLayers = document.getElementById('stat-layers');
 
-        isProcessingQueue = true;
-        const update = updateQueue.shift();
-
-        // Apply the update
-        if (update.type === 'success') {
-            methodChain.push(update.methodName);
-            progressPreview.textContent = methodChain.join(' → ');
-        } else if (update.type === 'status') {
-            // Strategy/preset status message - KEEP CHAIN SHORT
-            // Only keep last 5 methods + this status message for readability
-            if (methodChain.length > 5) {
-                methodChain = ['...'].concat(methodChain.slice(-4));
+        // Extract strategy/preset from message
+        if (message.includes('Preset:')) {
+            const presetMatch = message.match(/Preset:\s*(\w+)/);
+            if (presetMatch && statStrategy) {
+                statStrategy.textContent = presetMatch[1];
             }
-            methodChain.push(update.methodName);
-            progressPreview.textContent = methodChain.join(' → ');
-        } else if (update.type === 'complete') {
-            progressPreview.textContent = methodChain.join(' → ');
-        }
-
-        // Update progress bar and text (only move forward, never backward)
-        if (update.progress !== undefined) {
-            const newProgress = Math.max(lastProgressValue, Math.min(update.progress, 100));
-            if (newProgress > lastProgressValue) {
-                progressBar.style.transition = 'width 0.5s ease-out';
-                progressBar.style.width = `${newProgress}%`;
-                lastProgressValue = newProgress;
+        } else if (message.includes('Strategy:')) {
+            const strategyMatch = message.match(/Strategy:\s*(.+?)(?:\s|$)/);
+            if (strategyMatch && statStrategy) {
+                const strategyName = strategyMatch[1].replace(/🔄|⚙|📦|◈/g, '').trim();
+                if (strategyName && !strategyName.includes('Layer')) {
+                    statStrategy.textContent = strategyName;
+                }
             }
         }
-        if (update.progressText) {
-            progressText.textContent = update.progressText;
+
+        // Extract method from successful decode messages
+        if (message.includes('successful')) {
+            const methodMatch = message.match(/✓\s*(\w+)\s+successful/);
+            if (methodMatch && statMethod) {
+                statMethod.textContent = methodMatch[1];
+            }
+
+            // Increment layer count on successful decode
+            currentLayerCount++;
+            if (statLayers) {
+                statLayers.textContent = currentLayerCount.toString();
+            }
         }
 
-        // Process next update after delay
-        setTimeout(() => {
-            isProcessingQueue = false;
-            processUpdateQueue();
-        }, 400); // 400ms delay between updates
-    };
+        // Extract layer info from "Layer X" format as fallback
+        const layerMatch = message.match(/Layer (\d+)/);
+        if (layerMatch) {
+            const layerNum = parseInt(layerMatch[1]);
+            if (layerNum > currentLayerCount) {
+                currentLayerCount = layerNum;
+                if (statLayers) {
+                    statLayers.textContent = currentLayerCount.toString();
+                }
+            }
+        }
+    }
+
+    // Helper function to add activity item
+    function addActivityItem(message, type = 'info') {
+        const activityFeed = document.getElementById('activity-feed');
+        if (!activityFeed) return;
+
+        const item = document.createElement('div');
+        item.className = `activity-item ${type}`;
+
+        let icon = '→';
+        if (type === 'success') icon = '✓';
+        else if (type === 'complete') icon = '✓';
+        else if (type === 'status') icon = '◈';
+        else if (type === 'info') icon = '◆';
+
+        item.innerHTML = `<span class="icon">${icon}</span><span>${escapeHtml(message)}</span>`;
+        activityFeed.appendChild(item);
+
+        // Auto-scroll to bottom
+        activityFeed.scrollTop = activityFeed.scrollHeight;
+
+        // Update stats cards based on message
+        updateStatsCards(message);
+    }
 
     eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
 
         if (data.status === 'complete') {
             eventSource.close();
-            if (progressContainer) {
-                // Animate to 100% smoothly
-                progressBar.style.transition = 'width 1s ease-out';
-                progressBar.style.width = '100%';
-                progressText.textContent = 'Analysis complete!';
-                progressCompleted = true;
-            }
+            progressCompleted = true;
+            addActivityItem('Analysis complete - ready to view results', 'complete');
+
+            // Fade out spinner
+            setTimeout(() => {
+                loadingDiv.classList.add('fade-out');
+
+                // After fade out completes, hide spinner
+                setTimeout(() => {
+                    loadingDiv.style.display = 'none';
+                    // If auto-show is enabled, activity feed will be hidden by response handler
+                    // If manual review, activity feed stays visible (already showing)
+                }, 500); // Match fadeOut duration
+            }, 100); // Small delay before starting fade
+
             return;
         }
 
         if (data.status === 'alive') {
-            // Heartbeat - do nothing
-            return;
+            return; // Heartbeat - ignore
         }
 
-        // Handle strategy/preset messages first (they may not have layer data)
-        if (data.method && (data.method.includes('Strategy:') || data.method.includes('Preset:') ||
-                            data.method.includes('rotation') || data.method.includes('alternative'))) {
-            // Strategy/Preset switching notification - queue it
-            updateQueue.push({
-                type: 'status',
-                methodName: data.method,
-                progressText: data.method
-            });
-            processUpdateQueue();
-            return;
-        }
-
-        // Queue progress updates for delayed display
-        if (data.layer !== undefined && data.total_layers && progressContainer) {
-            // data.layer can be decimal (e.g., 2.3 = layer 2, 30% through methods)
-            const progress = (data.layer / data.total_layers) * 100;
-
-            // Extract actual layer from virtual layer
-            // Virtual layer uses strategy_index * max_depth + iteration
-            // To get actual layer (1-6): take modulo and adjust
-            const maxDepth = 6;
-            let displayLayer = Math.ceil(data.layer);
-
-            // Try to extract layer from message text first (most accurate)
-            const layerMatch = data.method.match(/Layer (\d+)/);
-            if (layerMatch) {
-                displayLayer = parseInt(layerMatch[1]);
+        // Process messages with method information
+        if (data.method) {
+            // Determine message type
+            if (data.method.includes('successful')) {
+                // Successful decode
+                addActivityItem(data.method, 'success');
+            } else if (data.method.includes('Strategy:') || data.method.includes('Preset:') ||
+                       data.method.includes('rotation') || data.method.includes('alternative')) {
+                // Strategy/preset change notification
+                addActivityItem(data.method, 'status');
+            } else if (data.method.includes('Trying')) {
+                // Skip "Trying" messages to reduce noise (optional)
+                // Uncomment next line if you want to show them:
+                // addActivityItem(data.method, 'info');
             } else {
-                // For success messages without layer in text, calculate from virtual layer
-                // Subtract 1, take modulo max_depth, add 1 back
-                displayLayer = ((Math.ceil(data.layer) - 1) % maxDepth) + 1;
+                // Other informational messages
+                addActivityItem(data.method, 'info');
             }
-
-            const progressTextValue = `${data.method} (${displayLayer}/${maxDepth})`;
-
-            // Handle different update types
-            if (data.method && data.method.includes('successful')) {
-                // Successful decode - queue with progress bar update (only if progress increases)
-                const methodName = data.method.replace('✓', '').replace('successful', '').trim();
-
-                // Only queue if progress is moving forward
-                if (progress > lastProgressValue || updateQueue.length === 0) {
-                    updateQueue.push({
-                        type: 'success',
-                        methodName: methodName,
-                        progress: progress,
-                        progressText: `Layer ${displayLayer}/${maxDepth}`
-                    });
-                    processUpdateQueue();
-                }
-            } else if (data.method === 'Complete') {
-                // Final completion
-                updateQueue.push({
-                    type: 'complete',
-                    progress: 100,
-                    progressText: 'Analysis complete!'
-                });
-                processUpdateQueue();
-            }
-            // Note: No longer showing "Trying" messages - they caused progress bar jumps
         }
     };
 
@@ -200,174 +218,43 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         }
 
         const data = await response.json();
-        currentResults = data;
+        console.log('Received data from /analyze:', data);
 
-        // Reset selections
-        selectedIOCs = {
-            urls: [],
-            ips: [],
-            domains: [],
-            registry_keys: [],
-            mutexes: [],
-            file_paths: [],
-            crypto_addresses: []
-        };
-        selectedDeobfuscated = [];
-
-        // Update summary cards
-        document.getElementById('stat-strings').textContent = data.summary.strings;
-        document.getElementById('stat-decoded').textContent = data.summary.decoded || 0;
-        document.getElementById('stat-iocs').textContent = data.summary.iocs;
-        document.getElementById('stat-techniques').textContent = data.summary.techniques;
+        // Store in global variable
+        window.analysisData = data;
+        console.log('Stored in window.analysisData:', window.analysisData);
 
         // Check if all deobfuscation results failed
         const allDeobfuscationFailed = data.deobfuscation_results &&
                                        data.deobfuscation_results.length > 0 &&
                                        data.deobfuscation_results.every(r => r.failed === true);
 
-        // Debug logging
-        console.log('Deobfuscation Results:', data.deobfuscation_results);
-        console.log('All Deobfuscation Failed:', allDeobfuscationFailed);
-        if (data.deobfuscation_results && data.deobfuscation_results.length > 0) {
-            console.log('First result failed status:', data.deobfuscation_results[0].failed);
-            console.log('First result failure_reason:', data.deobfuscation_results[0].failure_reason);
-        }
+        console.log('All deobfuscation failed:', allDeobfuscationFailed);
 
-        // Populate Deobfuscation tab
-        if (data.deobfuscation_stats) {
-            displayDeobfuscation(data.deobfuscation_stats, data.deobfuscation_results, allDeobfuscationFailed);
-        }
+        // Always hide loading spinner
+        loadingDiv.style.display = 'none';
 
-        // Only populate other tabs if deobfuscation didn't completely fail
-        if (!allDeobfuscationFailed) {
-            // Populate IOCs tab
-            displayIOCs(data.iocs);
-
-            // Populate ATT&CK tab
-            displayAttackMapping(data.attack_mapping);
-
-            // Populate YARA tab
-            displayYaraRules(data.yara_rule, data.yara_ioc_rules);
-
-            // Populate Sigma tab
-            displaySigmaRules(data.sigma_rule, data.sigma_ioc_rules);
-
-            // Populate Report tab
-            displayReport(data.markdown_report);
-        }
-
-        // Wait for progress bar to complete before showing results
-        const showResults = () => {
-            loadingDiv.style.display = 'none';
-
-            // For failures, hide progress immediately before showing failure message
-            // For success, hide progress with a delay for smooth transition
-            if (allDeobfuscationFailed) {
-                if (progressContainer) {
-                    progressContainer.style.display = 'none';
-                    console.log('Progress panel hidden immediately (failure case)');
-                }
-                // Small delay to let progress panel disappear, then prepare UI and show failure message
-                setTimeout(() => {
-                    console.log('Hiding UI elements due to complete deobfuscation failure');
-
-                    // Hide upload section
-                    const uploadSection = document.getElementById('upload-section');
-                    if (uploadSection) {
-                        uploadSection.style.display = 'none';
-                        console.log('Upload section hidden');
-                    }
-
-                    // Hide "Analysis Results" heading
-                    const resultsHeading = document.querySelector('#results > h2');
-                    if (resultsHeading) {
-                        resultsHeading.style.display = 'none';
-                        console.log('Analysis Results heading hidden');
-                    }
-
-                    // Hide "Deobfuscation Results" heading inside the tab
-                    const deobfHeading = document.querySelector('#deobfuscation-tab > h3');
-                    if (deobfHeading) {
-                        deobfHeading.style.display = 'none';
-                        console.log('Deobfuscation Results heading hidden');
-                    }
-
-                    // Hide summary cards and tab navigation
-                    const summaryCards = document.querySelector('.summary-cards');
-                    const tabs = document.querySelector('.tabs');
-                    if (summaryCards) {
-                        summaryCards.style.display = 'none';
-                        console.log('Summary cards hidden');
-                    }
-                    if (tabs) {
-                        tabs.style.display = 'none';
-                        console.log('Tab navigation hidden');
-                    }
-
-                    // Hide all tab content EXCEPT the deobfuscation tab
-                    const tabContents = document.querySelectorAll('.tab-content');
-                    tabContents.forEach(tab => {
-                        // Keep deobfuscation-tab visible, hide all others
-                        if (tab.id === 'deobfuscation-tab') {
-                            tab.style.display = 'block';
-                            console.log('Deobfuscation tab kept visible');
-                        } else {
-                            tab.style.display = 'none';
-                            console.log('Tab hidden:', tab.id);
-                        }
-                    });
-
-                    // Finally, show the failure message
-                    resultsDiv.style.display = 'block';
-                    console.log('Failure message displayed');
-                }, 300);
-            } else {
-                // Success case - show results and fade out progress bar
-                resultsDiv.style.display = 'block';
-                if (progressContainer) {
-                    // Fade out the progress bar after a delay
-                    setTimeout(() => {
-                        progressContainer.style.display = 'none';
-                    }, 1500);
-                }
+        // Check if user wants auto-show or manual review
+        console.log('autoShowResults:', autoShowResults);
+        if (autoShowResults || allDeobfuscationFailed) {
+            // Auto-show results OR failed deobfuscation - hide activity feed and show results immediately
+            console.log('Auto-showing results or failed decode - hiding activity feed');
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+                progressContainer.classList.remove('slide-up'); // Remove animation class
             }
-        };
-
-        // If progress hasn't completed yet, wait for it
-        if (!progressCompleted && progressContainer) {
-            // Wait up to 3 seconds for progress to complete
-            let waited = 0;
-            const waitInterval = setInterval(() => {
-                waited += 100;
-                if (progressCompleted || waited >= 3000) {
-                    clearInterval(waitInterval);
-                    // Give user 2 seconds to see 100% completion
-                    setTimeout(showResults, 2000);
-                }
-            }, 100);
+            showAnalysisResults();
         } else {
-            // Progress already complete or no progress bar, show results after delay
-            setTimeout(showResults, 2000);
-        }
-
-        // Hide upload form and conditionally show "New Analysis" button
-        const uploadSection = document.getElementById('upload-section');
-        const newAnalysisBtn = document.getElementById('new-analysis-btn');
-        if (uploadSection && newAnalysisBtn) {
-            uploadSection.style.display = 'none';
-            // Only show "New Analysis" button if deobfuscation didn't completely fail
-            // (When it fails, we show "Try Another File" button in the failure message instead)
-            if (allDeobfuscationFailed) {
-                newAnalysisBtn.style.display = 'none';
-                console.log('New Analysis button hidden (deobfuscation failed)');
+            // Manual review mode AND successful decode - activity feed already visible, just show button
+            console.log('Manual review mode - keeping activity feed visible with View Results button');
+            const viewResultsBtn = document.getElementById('view-results-btn');
+            if (viewResultsBtn) {
+                viewResultsBtn.style.display = 'block';
+                console.log('View Results button displayed');
             } else {
-                newAnalysisBtn.style.display = 'block';
-                console.log('New Analysis button shown');
+                console.error('View Results button element not found!');
             }
         }
-
-        // Scroll to results
-        resultsDiv.scrollIntoView({ behavior: 'smooth' });
 
     } catch (error) {
         eventSource.close();
@@ -383,6 +270,143 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         }
     }
 });
+
+// Function to display analysis results (make it globally accessible)
+window.showAnalysisResults = function() {
+    console.log('showAnalysisResults called');
+    console.log('window.analysisData:', window.analysisData);
+
+    if (!window.analysisData) {
+        console.error('No window.analysisData available!');
+        alert('No analysis data available. Please run an analysis first.');
+        return;
+    }
+
+    const data = window.analysisData;
+    const resultsDiv = document.getElementById('results');
+    const progressContainer = document.getElementById('progress-container');
+
+    console.log('resultsDiv:', resultsDiv);
+    console.log('progressContainer:', progressContainer);
+
+    // Hide the activity feed when showing results
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
+
+    currentResults = data;
+
+    // Reset selections
+    selectedIOCs = {
+        urls: [],
+        ips: [],
+        domains: [],
+        registry_keys: [],
+        mutexes: [],
+        file_paths: [],
+        crypto_addresses: []
+    };
+    selectedDeobfuscated = [];
+
+    // Update summary cards
+    document.getElementById('stat-strings').textContent = data.summary.strings;
+    document.getElementById('stat-decoded').textContent = data.summary.decoded || 0;
+    document.getElementById('stat-iocs').textContent = data.summary.iocs;
+    document.getElementById('stat-techniques').textContent = data.summary.techniques;
+
+    // Check if all deobfuscation results failed
+    const allDeobfuscationFailed = data.deobfuscation_results &&
+                                   data.deobfuscation_results.length > 0 &&
+                                   data.deobfuscation_results.every(r => r.failed === true);
+
+    // Populate Deobfuscation tab
+    if (data.deobfuscation_stats) {
+        displayDeobfuscation(data.deobfuscation_stats, data.deobfuscation_results, allDeobfuscationFailed);
+    }
+
+    // Only populate other tabs if deobfuscation didn't completely fail
+    if (!allDeobfuscationFailed) {
+        // Populate IOCs tab
+        displayIOCs(data.iocs);
+
+        // Populate ATT&CK tab
+        displayAttackMapping(data.attack_mapping);
+
+        // Populate YARA tab
+        displayYaraRules(data.yara_rule, data.yara_ioc_rules);
+
+        // Populate Sigma tab
+        displaySigmaRules(data.sigma_rule, data.sigma_ioc_rules);
+
+        // Populate Report tab
+        displayReport(data.markdown_report);
+    }
+
+    // Hide progress container
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
+
+    // Handle UI based on results
+    if (allDeobfuscationFailed) {
+        // Hide upload section
+        const uploadSection = document.getElementById('upload-section');
+        if (uploadSection) {
+            uploadSection.style.display = 'none';
+        }
+
+        // Hide "Analysis Results" heading
+        const resultsHeading = document.querySelector('#results > h2');
+        if (resultsHeading) {
+            resultsHeading.style.display = 'none';
+        }
+
+        // Hide "Deobfuscation Results" heading inside the tab
+        const deobfHeading = document.querySelector('#deobfuscation-tab > h3');
+        if (deobfHeading) {
+            deobfHeading.style.display = 'none';
+        }
+
+        // Hide summary cards and tab navigation
+        const summaryCards = document.querySelector('.summary-cards');
+        const tabs = document.querySelector('.tabs');
+        if (summaryCards) {
+            summaryCards.style.display = 'none';
+        }
+        if (tabs) {
+            tabs.style.display = 'none';
+        }
+
+        // Hide all tab content EXCEPT the deobfuscation tab
+        const tabContents = document.querySelectorAll('.tab-content');
+        tabContents.forEach(tab => {
+            if (tab.id === 'deobfuscation-tab') {
+                tab.style.display = 'block';
+            } else {
+                tab.style.display = 'none';
+            }
+        });
+    }
+
+    // Show results
+    resultsDiv.style.display = 'block';
+
+    // Hide upload form and conditionally show "New Analysis" button
+    const uploadSection = document.getElementById('upload-section');
+    const newAnalysisBtn = document.getElementById('new-analysis-btn');
+    if (uploadSection && newAnalysisBtn) {
+        uploadSection.style.display = 'none';
+        // Only show "New Analysis" button if deobfuscation didn't completely fail
+        if (allDeobfuscationFailed) {
+            newAnalysisBtn.style.display = 'none';
+        } else {
+            newAnalysisBtn.style.display = 'block';
+        }
+    }
+
+    // Scroll to results
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+};
 
 // Display Deobfuscation Results with checkboxes
 function displayDeobfuscation(stats, results, allFailed = false) {
@@ -1008,19 +1032,19 @@ function showDetailModal(type) {
     
     switch(type) {
         case 'strings':
-            title.textContent = '📄 String Analysis Details';
+            title.textContent = 'String Analysis Details';
             html = generateStringsDetail();
             break;
         case 'decoded':
-            title.textContent = '🔓 Deobfuscation Trace';
+            title.textContent = 'Deobfuscation Trace';
             html = generateDecodedDetail();
             break;
         case 'iocs':
-            title.textContent = '🎯 IOC Breakdown';
+            title.textContent = 'IOC Breakdown';
             html = generateIOCsDetail();
             break;
         case 'techniques':
-            title.textContent = '⚔️ ATT&CK Techniques Detail';
+            title.textContent = 'ATT&CK Techniques Detail';
             html = generateTechniquesDetail();
             break;
     }
@@ -1037,176 +1061,250 @@ function closeModal(event) {
 }
 
 function generateStringsDetail() {
-    let html = '<div class="detail-section">';
-    
-    // Stats
-    html += '<div class="detail-stats">';
-    html += `<p><strong>Total Unique Strings:</strong> ${currentResults.summary.strings}</p>`;
-    html += `<p><strong>File:</strong> ${currentResults.filename || 'N/A'}</p>`;
+    let html = '';
+
+    // Overview Section
+    html += '<div class="modal-section">';
+    html += '<h3>Overview</h3>';
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">';
+    html += `<div style="background: rgba(0, 212, 255, 0.1); padding: 15px; border-radius: 6px; border-left: 3px solid var(--accent-cyan);">
+        <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">Total Strings</div>
+        <div style="font-size: 2em; font-weight: bold; color: var(--accent-cyan);">${currentResults.summary.strings}</div>
+    </div>`;
+    html += `<div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-radius: 6px; border-left: 3px solid var(--accent-green);">
+        <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">Source File</div>
+        <div style="font-size: 1em; font-weight: 600; color: var(--accent-green); word-break: break-all;">${escapeHtml(currentResults.filename || 'N/A')}</div>
+    </div>`;
     html += '</div>';
-    
-    // String categories breakdown
+    html += '</div>';
+
+    // Deobfuscation Stats Section
     if (currentResults.deobfuscation_stats) {
-        html += '<h3>📊 String Analysis</h3>';
-        html += '<div class="stats-grid">';
-        html += `<div class="stat-item">
-            <span class="stat-label">Encoded Strings Detected:</span>
-            <span class="stat-value">${currentResults.deobfuscation_stats.successfully_decoded || 0}</span>
-        </div>`;
-        html += `<div class="stat-item">
-            <span class="stat-label">Max Decoding Depth:</span>
-            <span class="stat-value">${currentResults.deobfuscation_stats.max_depth || 0} layers</span>
-        </div>`;
-        // methods_used is an object with method names as keys and counts as values
         const methodsCount = currentResults.deobfuscation_stats.methods_used ?
             Object.keys(currentResults.deobfuscation_stats.methods_used).length : 0;
-        html += `<div class="stat-item">
-            <span class="stat-label">Decoding Methods Used:</span>
-            <span class="stat-value">${methodsCount}</span>
+
+        html += '<div class="modal-section">';
+        html += '<h3>Deobfuscation Summary</h3>';
+        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 15px;">';
+
+        html += `<div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 1.8em;">◆</div>
+            <div>
+                <div style="font-size: 0.8em; color: var(--text-secondary);">Decoded Strings</div>
+                <div style="font-size: 1.4em; font-weight: bold; color: var(--accent-green);">${currentResults.deobfuscation_stats.successfully_decoded || 0}</div>
+            </div>
         </div>`;
+
+        html += `<div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 1.8em;">◇</div>
+            <div>
+                <div style="font-size: 0.8em; color: var(--text-secondary);">Max Depth</div>
+                <div style="font-size: 1.4em; font-weight: bold; color: var(--accent-cyan);">${currentResults.deobfuscation_stats.max_depth || 0} layers</div>
+            </div>
+        </div>`;
+
+        html += `<div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 1.8em;">◈</div>
+            <div>
+                <div style="font-size: 0.8em; color: var(--text-secondary);">Methods Used</div>
+                <div style="font-size: 1.4em; font-weight: bold; color: var(--accent-green);">${methodsCount}</div>
+            </div>
+        </div>`;
+
         html += '</div>';
 
+        // Show methods breakdown if available
         if (currentResults.deobfuscation_stats.methods_used && methodsCount > 0) {
-            html += '<h4>🔧 Deobfuscation Methods Applied:</h4>';
-            html += '<ul class="methods-list">';
+            html += '<div style="margin-top: 20px;">';
+            html += '<h4 style="color: var(--accent-cyan); font-size: 1em; margin-bottom: 12px;">Methods Applied</h4>';
+            html += '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
             Object.entries(currentResults.deobfuscation_stats.methods_used).forEach(([method, count]) => {
-                html += `<li><code>${escapeHtml(method)}</code> <span class="method-count">(${count}x)</span></li>`;
+                html += `<span class="modal-stat">${escapeHtml(method)} <span style="opacity: 0.7;">×${count}</span></span>`;
             });
-            html += '</ul>';
+            html += '</div>';
+            html += '</div>';
         }
-    }
-    
-    // Entropy info - only show if there are high entropy strings
-    if (currentResults.analysis && currentResults.analysis.high_entropy_strings && currentResults.analysis.high_entropy_strings.length > 0) {
-        html += '<h3>📈 Entropy Analysis</h3>';
-        html += `<p><strong>High-Entropy Strings:</strong> ${currentResults.analysis.high_entropy_strings.length}</p>`;
-        html += '<p class="hint">High entropy strings may indicate encryption, compression, or obfuscation</p>';
+        html += '</div>';
     }
 
-    // Suspicious keywords - only show if keywords were found
+    // Entropy Analysis Section - only show if data exists
+    if (currentResults.analysis && currentResults.analysis.high_entropy_strings && currentResults.analysis.high_entropy_strings.length > 0) {
+        html += '<div class="modal-section">';
+        html += '<h3>Entropy Analysis</h3>';
+        html += `<p style="margin: 12px 0;"><strong style="color: var(--accent-cyan);">${currentResults.analysis.high_entropy_strings.length}</strong> high-entropy string(s) detected</p>`;
+        html += '<p style="font-size: 0.9em; color: var(--text-secondary); font-style: italic; margin: 0;">High entropy may indicate encryption, compression, or obfuscation</p>';
+        html += '</div>';
+    }
+
+    // Suspicious Keywords Section - only show if data exists
     if (currentResults.analysis && currentResults.analysis.suspicious_keywords && currentResults.analysis.suspicious_keywords.length > 0) {
-        html += '<h3>⚠️ Suspicious Keywords</h3>';
-        html += `<p><strong>Keywords Found:</strong> ${currentResults.analysis.suspicious_keywords.length}</p>`;
-        html += '<div class="keywords-list">';
+        html += '<div class="modal-section">';
+        html += '<h3>Suspicious Keywords</h3>';
+        html += `<p style="margin: 12px 0 15px 0;"><strong style="color: var(--accent-cyan);">${currentResults.analysis.suspicious_keywords.length}</strong> suspicious keyword(s) found</p>`;
+        html += '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
         currentResults.analysis.suspicious_keywords.forEach(kw => {
-            html += `<span class="keyword-badge">${escapeHtml(kw)}</span>`;
+            html += `<span style="background: rgba(231, 76, 60, 0.15); color: #e74c3c; padding: 6px 12px; border-radius: 4px; font-size: 0.9em; border: 1px solid rgba(231, 76, 60, 0.3);">${escapeHtml(kw)}</span>`;
         });
         html += '</div>';
+        html += '</div>';
     }
-    
-    html += '</div>';
+
     return html;
 }
 
 function generateDecodedDetail() {
-    let html = '<div class="detail-section">';
-    
     if (!currentResults.deobfuscation_results || currentResults.deobfuscation_results.length === 0) {
-        html += '<p class="no-data">No encoded strings were detected or decoded.</p>';
-        html += '</div>';
-        return html;
+        return `<div class="modal-section" style="text-align: center; padding: 40px;">
+            <div style="font-size: 4em; opacity: 0.3; margin-bottom: 15px;">◇</div>
+            <p style="font-size: 1.1em; color: var(--text-secondary);">No encoded strings were detected or decoded.</p>
+        </div>`;
     }
-    
-    html += `<p class="detail-summary">Successfully decoded <strong>${currentResults.deobfuscation_stats.successfully_decoded}</strong> encoded string(s) with max depth of <strong>${currentResults.deobfuscation_stats.max_depth}</strong> layers.</p>`;
-    
+
+    let html = '';
+
+    // Calculate successful vs failed counts
+    const successfulCount = currentResults.deobfuscation_results.filter(r => !r.failed).length;
+    const failedCount = currentResults.deobfuscation_results.filter(r => r.failed).length;
+    const totalCount = currentResults.deobfuscation_results.length;
+
+    // Overview section with success/failure breakdown
+    html += '<div class="modal-section">';
+    html += '<h3>Overview</h3>';
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">';
+
+    // Successful decodes card
+    html += `<div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-radius: 6px; border-left: 3px solid var(--accent-green);">
+        <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">✓ Successful Decodes</div>
+        <div style="font-size: 2em; font-weight: bold; color: var(--accent-green);">${successfulCount}</div>
+    </div>`;
+
+    // Failed decodes card (only show if there are failures)
+    if (failedCount > 0) {
+        html += `<div style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 6px; border-left: 3px solid #e74c3c;">
+            <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">✗ Failed Decodes</div>
+            <div style="font-size: 2em; font-weight: bold; color: #e74c3c;">${failedCount}</div>
+        </div>`;
+    }
+
+    // Max depth card
+    html += `<div style="background: rgba(0, 212, 255, 0.1); padding: 15px; border-radius: 6px; border-left: 3px solid var(--accent-cyan);">
+        <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">Max Depth</div>
+        <div style="font-size: 2em; font-weight: bold; color: var(--accent-cyan);">${currentResults.deobfuscation_stats.max_depth} layers</div>
+    </div>`;
+
+    html += '</div>';
+    html += '</div>';
+
     currentResults.deobfuscation_results.forEach((result, index) => {
-        html += `<div class="deobf-detail-item">`;
-        html += `<h3>🔐 Encoded String #${index + 1}</h3>`;
+        // Add status indicator to section
+        const statusIcon = result.failed ? '✗' : '✓';
+        const statusColor = result.failed ? '#e74c3c' : '#1e8449'; // Much darker green for better contrast with white text
+        const statusText = result.failed ? 'Failed' : 'Success';
+
+        html += `<div class="modal-section" style="${result.failed ? '' : 'border-left-color: var(--accent-green);'}">`;
+        html += `<h3 style="display: flex; align-items: center; gap: 10px;">
+            <span>Encoded String #${index + 1}</span>
+            <span style="background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.7em; font-weight: 600;">${statusIcon} ${statusText}</span>
+        </h3>`;
+
+        // Prominently display methods used for successful deobfuscation
+        if (!result.failed && result.methods_used && result.methods_used.length > 0) {
+            html += '<div style="background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 212, 255, 0.15)); border: 1px solid var(--accent-green); border-radius: 8px; padding: 20px; margin-bottom: 20px;">';
+            html += '<h4 style="color: var(--accent-green); margin: 0 0 12px 0; font-size: 1.1em;">Deobfuscation Methods Used:</h4>';
+            html += '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
+            result.methods_used.forEach((method, idx) => {
+                html += `<span class="modal-stat">${escapeHtml(method)}</span>`;
+                if (idx < result.methods_used.length - 1) {
+                    html += '<span style="color: var(--accent-cyan); font-size: 1.2em;">→</span>';
+                }
+            });
+            html += '</div>';
+            html += '</div>';
+        }
 
         // Show failure message if deobfuscation failed
         if (result.failed) {
-            html += '<div class="detail-subsection failure-notice">';
-            html += '<h4>⚠️ Deobfuscation Failed</h4>';
-            html += `<p class="failure-message"><strong>Reason:</strong> ${escapeHtml(result.failure_reason || 'Unknown error')}</p>`;
+            html += '<div style="background: rgba(231, 76, 60, 0.1); border: 1px solid #e74c3c; border-radius: 8px; padding: 20px; margin-bottom: 20px;">';
+            html += '<h4 style="color: #e74c3c; margin: 0 0 12px 0;">Deobfuscation Failed</h4>';
+            html += `<p style="margin: 0;"><strong>Reason:</strong> ${escapeHtml(result.failure_reason || 'Unknown error')}</p>`;
             if (result.quality_score !== undefined) {
-                html += `<p><strong>Quality Score:</strong> ${result.quality_score.toFixed(2)} / 1.00</p>`;
+                html += `<p style="margin: 8px 0 0 0;"><strong>Quality Score:</strong> ${result.quality_score.toFixed(2)} / 1.00</p>`;
             }
             if (result.strategy_used) {
-                html += `<p><strong>Strategy Used:</strong> ${escapeHtml(result.strategy_used)}</p>`;
+                html += `<p style="margin: 8px 0 0 0;"><strong>Strategy Used:</strong> ${escapeHtml(result.strategy_used)}</p>`;
             }
             if (result.strategies_attempted && result.strategies_attempted.length > 1) {
-                html += `<p><strong>Strategies Attempted:</strong> ${result.strategies_attempted.join(', ')}</p>`;
+                html += `<p style="margin: 8px 0 0 0;"><strong>Strategies Attempted:</strong> ${result.strategies_attempted.join(', ')}</p>`;
             }
             html += '</div>';
         } else {
             // Show success info
-            if (result.quality_score !== undefined || result.strategy_used) {
-                html += '<div class="detail-subsection success-notice">';
-                html += '<h4>✓ Deobfuscation Success</h4>';
-                if (result.quality_score !== undefined) {
-                    html += `<p><strong>Quality Score:</strong> ${result.quality_score.toFixed(2)} / 1.00</p>`;
-                }
-                if (result.strategy_used) {
-                    html += `<p><strong>Strategy Used:</strong> ${escapeHtml(result.strategy_used)}</p>`;
-                }
-                html += '</div>';
+            if (result.quality_score !== undefined) {
+                html += `<p style="margin-bottom: 15px;"><strong>Quality Score:</strong> <span style="color: var(--accent-green);">${result.quality_score.toFixed(2)} / 1.00</span></p>`;
+            }
+            if (result.strategy_used) {
+                html += `<p style="margin-bottom: 15px;"><strong>Strategy Used:</strong> ${escapeHtml(result.strategy_used)}</p>`;
             }
         }
 
         // Show original
-        html += '<div class="detail-subsection">';
-        html += '<h4>Original (Encoded):</h4>';
-        html += `<pre class="encoded-preview">${escapeHtml(result.original.substring(0, 100))}${result.original.length > 100 ? '...' : ''}</pre>`;
-        html += '</div>';
+        html += '<h4 style="margin-top: 20px; margin-bottom: 10px;">Original (Encoded):</h4>';
+        html += `<pre style="background: var(--bg-secondary); padding: 12px; border-radius: 6px; border-left: 3px solid var(--accent-cyan); overflow-x: auto;">${escapeHtml(result.original.substring(0, 200))}${result.original.length > 200 ? '...' : ''}</pre>`;
 
-        // Show trace
+        // Show trace with highlighting for final plaintext
         if (result.trace && result.trace.length > 0) {
-            html += '<div class="detail-subsection">';
-            html += '<h4>🔍 Deobfuscation Trace:</h4>';
-            html += '<div class="trace-timeline">';
-            
+            html += '<h4 style="margin-top: 20px; margin-bottom: 15px;">Deobfuscation Trace:</h4>';
+
+            // Get the final decoded result for comparison
+            const finalPlaintext = result.decoded && result.decoded.length > 0 ? result.decoded[result.decoded.length - 1] : null;
+
             result.trace.forEach((step, i) => {
                 const [method, success, preview] = step;
-                const icon = success ? '✓' : '✗';
-                const statusClass = success ? 'success' : 'failed';
-                
-                html += `<div class="trace-step ${statusClass}">`;
-                html += `<span class="trace-icon">${icon}</span>`;
-                html += `<span class="trace-method">${method}</span>`;
-                html += `<div class="trace-preview">${escapeHtml(preview.substring(0, 80))}${preview.length > 80 ? '...' : ''}</div>`;
+                const isLastSuccess = success && i === result.trace.length - 1;
+                const isFinalPlaintextMatch = finalPlaintext && preview === finalPlaintext;
+
+                // Highlight if this is the final plaintext result
+                const highlightClass = (isLastSuccess || isFinalPlaintextMatch) && !result.failed ? 'final-plaintext-row' : '';
+
+                html += `<div class="trace-step ${success ? 'success' : 'failed'} ${highlightClass}" style="display: flex; align-items: start; gap: 12px; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: ${highlightClass ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 212, 255, 0.1))' : 'var(--bg-secondary)'}; border: 1px solid ${highlightClass ? 'var(--accent-green)' : 'var(--border-color)'}; ${highlightClass ? 'box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);' : ''}">`;
+                html += `<span style="color: ${success ? 'var(--accent-green)' : 'var(--accent-danger)'}; font-size: 1.2em; min-width: 20px;">${success ? '◆' : '◇'}</span>`;
+                html += `<div style="flex: 1;">`;
+                html += `<div style="color: var(--accent-cyan); font-weight: bold; margin-bottom: 6px;">${escapeHtml(method)}${highlightClass ? ' → Final Result' : ''}</div>`;
+                html += `<code style="display: block; background: var(--bg-primary); padding: 8px; border-radius: 4px; font-size: 0.85em; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">${escapeHtml(preview.substring(0, 150))}${preview.length > 150 ? '...' : ''}</code>`;
+                html += `</div>`;
                 html += `</div>`;
             });
-            
-            html += '</div>';
-            html += '</div>';
         }
-        
-        // Show final plaintext (or failure warning)
+
+        // Show final plaintext
         if (result.decoded && result.decoded.length > 0) {
-            html += '<div class="detail-subsection">';
+            html += '<h4 style="margin-top: 25px; margin-bottom: 10px;">Final Plaintext:</h4>';
             if (result.failed) {
-                html += '<h4>⚠️ Final Output (Likely Garbled/Incorrect):</h4>';
-                html += `<pre class="plaintext-result" style="border-left: 4px solid #e74c3c; background: rgba(231, 76, 60, 0.05);">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
-                html += '<p style="color: #e74c3c; margin-top: 10px;">⚠️ This output appears to be garbled or incorrectly decoded. Consider enabling Smart Mode for better results.</p>';
+                html += `<pre style="background: rgba(231, 76, 60, 0.05); padding: 15px; border-radius: 6px; border-left: 4px solid #e74c3c; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
+                html += '<p style="color: #e74c3c; margin-top: 10px; font-size: 0.9em;">This output appears to be garbled or incorrectly decoded.</p>';
             } else {
-                html += '<h4>✓ Final Plaintext:</h4>';
-                html += `<pre class="plaintext-result">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
+                // Add green glow highlighting to match the trace row
+                html += `<pre style="background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 212, 255, 0.1)); padding: 15px; border-radius: 6px; border: 1px solid var(--accent-green); border-left: 4px solid var(--accent-green); box-shadow: 0 0 15px rgba(0, 255, 136, 0.3); overflow-x: auto; white-space: pre-wrap; word-break: break-all;">${escapeHtml(result.decoded[result.decoded.length - 1])}</pre>`;
             }
-            html += '</div>';
         }
-        
+
         // Show suspicious patterns
         if (result.suspicious_patterns && result.suspicious_patterns.length > 0) {
-            html += '<div class="detail-subsection">';
-            html += '<h4>⚠️ Suspicious Patterns:</h4>';
-            html += '<ul class="suspicious-list">';
+            html += '<h4 style="margin-top: 20px; margin-bottom: 10px;">Suspicious Patterns:</h4>';
+            html += '<ul class="icon-list">';
             result.suspicious_patterns.forEach(pattern => {
                 html += `<li>${escapeHtml(pattern)}</li>`;
             });
             html += '</ul>';
-            html += '</div>';
         }
-        
+
         html += `</div>`;
     });
-    
-    html += '</div>';
+
     return html;
 }
 
 function generateIOCsDetail() {
-    let html = '<div class="detail-section">';
-
     const iocs = currentResults.iocs;
     const totalIOCs = (iocs.urls?.length || 0) + (iocs.ips?.length || 0) +
                      (iocs.domains?.length || 0) + (iocs.registry_keys?.length || 0) +
@@ -1214,60 +1312,77 @@ function generateIOCsDetail() {
                      (iocs.crypto_addresses?.length || 0);
 
     if (totalIOCs === 0) {
-        html += '<div class="empty-state">';
-        html += '<div class="empty-state-icon">🔍</div>';
-        html += '<p>No Indicators of Compromise detected in this sample.</p>';
-        html += '</div>';
-        html += '</div>';
-        return html;
+        return `<div class="modal-section" style="text-align: center; padding: 40px;">
+            <div style="font-size: 4em; opacity: 0.3; margin-bottom: 15px;">◇</div>
+            <p style="font-size: 1.1em; color: var(--text-secondary);">No Indicators of Compromise detected in this sample.</p>
+        </div>`;
     }
 
     const iocCategories = [
-        { key: 'urls', icon: '🌐', label: 'URLs', color: '#e74c3c' },
-        { key: 'ips', icon: '📡', label: 'IP Addresses', color: '#3498db' },
-        { key: 'domains', icon: '🔗', label: 'Domains', color: '#9b59b6' },
-        { key: 'registry_keys', icon: '🔑', label: 'Registry Keys', color: '#f39c12' },
-        { key: 'mutexes', icon: '🔒', label: 'Mutexes', color: '#1abc9c' },
-        { key: 'file_paths', icon: '📁', label: 'File Paths', color: '#34495e' },
-        { key: 'crypto_addresses', icon: '💰', label: 'Crypto Addresses', color: '#e67e22' }
+        { key: 'urls', icon: '◆', label: 'URLs', color: '#e74c3c', description: 'Web addresses' },
+        { key: 'ips', icon: '◆', label: 'IP Addresses', color: '#3498db', description: 'Network endpoints' },
+        { key: 'domains', icon: '◆', label: 'Domains', color: '#9b59b6', description: 'Domain names' },
+        { key: 'registry_keys', icon: '◆', label: 'Registry Keys', color: '#f39c12', description: 'Windows registry' },
+        { key: 'mutexes', icon: '◆', label: 'Mutexes', color: '#1abc9c', description: 'Mutex objects' },
+        { key: 'file_paths', icon: '◆', label: 'File Paths', color: '#34495e', description: 'File system paths' },
+        { key: 'crypto_addresses', icon: '◆', label: 'Crypto Addresses', color: '#e67e22', description: 'Cryptocurrency' }
     ];
 
     const populatedCount = iocCategories.filter(cat => (iocs[cat.key]?.length || 0) > 0).length;
-    html += `<p class="detail-summary">Detected <strong>${totalIOCs}</strong> Indicators of Compromise across <strong>${populatedCount}</strong> categor${populatedCount === 1 ? 'y' : 'ies'}.</p>`;
 
+    let html = '';
+
+    // Overview section
+    html += '<div class="modal-section">';
+    html += '<h3>Overview</h3>';
+    html += `<p style="font-size: 1.1em; margin: 15px 0;">Detected <strong style="color: var(--accent-cyan);">${totalIOCs}</strong> indicator(s) across <strong style="color: var(--accent-green);">${populatedCount}</strong> categor${populatedCount === 1 ? 'y' : 'ies'}</p>`;
+    html += '</div>';
+
+    // IOC Categories
     iocCategories.forEach(cat => {
         const items = iocs[cat.key] || [];
 
-        // Only show categories with items
         if (items.length > 0) {
-            html += `<div class="ioc-category-detail">`;
-            html += `<h3 style="color: ${cat.color}">${cat.icon} ${cat.label} <span class="count-badge">${items.length}</span></h3>`;
-            html += '<ul class="ioc-list">';
+            html += `<div class="modal-section">`;
+            html += `<h3 style="color: ${cat.color}; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 1.2em;">${cat.icon}</span>
+                <span>${cat.label}</span>
+                <span style="background: ${cat.color}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600;">${items.length}</span>
+            </h3>`;
+            html += `<p style="font-size: 0.9em; color: var(--text-secondary); margin: 8px 0 15px 0; font-style: italic;">${cat.description}</p>`;
+
+            html += '<div style="background: var(--bg-secondary); border-radius: 6px; padding: 15px; max-height: 300px; overflow-y: auto;">';
+            html += '<ul class="icon-list" style="margin: 0;">';
             items.forEach(item => {
-                html += `<li><code>${escapeHtml(item)}</code></li>`;
+                html += `<li style="margin-bottom: 8px;"><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(item)}</code></li>`;
             });
             html += '</ul>';
+            html += '</div>';
             html += '</div>';
         }
     });
 
-    html += '</div>';
     return html;
 }
 
 function generateTechniquesDetail() {
-    let html = '<div class="detail-section">';
-    
     const techniques = currentResults.attack_mapping?.techniques || [];
-    
+
     if (techniques.length === 0) {
-        html += '<p class="no-data">No ATT&CK techniques were mapped.</p>';
-        html += '</div>';
-        return html;
+        return `<div class="modal-section" style="text-align: center; padding: 40px;">
+            <div style="font-size: 4em; opacity: 0.3; margin-bottom: 15px;">◎</div>
+            <p style="font-size: 1.1em; color: var(--text-secondary);">No ATT&CK techniques were mapped for this sample.</p>
+        </div>`;
     }
-    
-    html += `<p class="detail-summary">Identified <strong>${techniques.length}</strong> potential MITRE ATT&CK technique(s).</p>`;
-    
+
+    let html = '';
+
+    // Overview section
+    html += '<div class="modal-section">';
+    html += '<h3>Overview</h3>';
+    html += `<p style="font-size: 1.1em; margin: 15px 0;">Identified <strong style="color: var(--accent-cyan);">${techniques.length}</strong> potential MITRE ATT&CK technique(s)</p>`;
+    html += '</div>';
+
     // Group by tactic
     const tacticGroups = {};
     techniques.forEach(tech => {
@@ -1277,41 +1392,68 @@ function generateTechniquesDetail() {
         }
         tacticGroups[tactic].push(tech);
     });
-    
+
+    // Tactic color mapping
+    const tacticColors = {
+        'Initial Access': '#e74c3c',
+        'Execution': '#e67e22',
+        'Persistence': '#f39c12',
+        'Privilege Escalation': '#f1c40f',
+        'Defense Evasion': '#1abc9c',
+        'Credential Access': '#16a085',
+        'Discovery': '#3498db',
+        'Lateral Movement': '#2980b9',
+        'Collection': '#9b59b6',
+        'Command and Control': '#8e44ad',
+        'Exfiltration': '#34495e',
+        'Impact': '#c0392b'
+    };
+
     Object.entries(tacticGroups).forEach(([tactic, techs]) => {
-        html += `<div class="tactic-group">`;
-        html += `<h3>📍 ${tactic} <span class="count-badge">${techs.length}</span></h3>`;
+        const tacticColor = tacticColors[tactic] || 'var(--accent-cyan)';
+
+        html += `<div class="modal-section">`;
+        html += `<h3 style="color: ${tacticColor}; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 1.2em;">◆</span>
+            <span>${tactic}</span>
+            <span style="background: ${tacticColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600;">${techs.length}</span>
+        </h3>`;
 
         // Sort techniques by confidence/match_count (high to low)
         const sortedTechs = techs.sort((a, b) => {
             const countA = a.match_count || 0;
             const countB = b.match_count || 0;
-            return countB - countA; // Descending order
+            return countB - countA;
         });
 
         sortedTechs.forEach(tech => {
-            // Map confidence based on match_count
-            let confidenceLevel = 'low';
             const matchCount = tech.match_count || 0;
-            if (matchCount >= 5) confidenceLevel = 'high';
-            else if (matchCount >= 2) confidenceLevel = 'medium';
+            let confidenceLevel = 'low';
+            let confidenceColor = '#95a5a6';
+            if (matchCount >= 5) {
+                confidenceLevel = 'high';
+                confidenceColor = '#27ae60';
+            } else if (matchCount >= 2) {
+                confidenceLevel = 'medium';
+                confidenceColor = '#f39c12';
+            }
 
-            html += `<div class="technique-detail-card">`;
-            html += `<div class="technique-header">`;
-            html += `<div>`;
-            html += `<div class="technique-name">${escapeHtml(tech.name || 'Unknown')}</div>`;
-            html += `<div class="technique-id">${tech.id || 'N/A'}</div>`;
+            html += `<div style="background: var(--bg-secondary); border-radius: 6px; padding: 15px; margin-bottom: 12px; border-left: 3px solid ${tacticColor};">`;
+
+            html += `<div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">`;
+            html += `<div style="flex: 1;">`;
+            html += `<div style="font-size: 1.1em; font-weight: 600; color: var(--accent-cyan); margin-bottom: 4px;">${escapeHtml(tech.name || 'Unknown')}</div>`;
+            html += `<div style="font-size: 0.9em; color: var(--text-secondary); font-family: monospace;">${tech.id || 'N/A'}</div>`;
             html += `</div>`;
-            html += `<span class="confidence-badge ${confidenceLevel}">${confidenceLevel}</span>`;
+            html += `<span style="background: ${confidenceColor}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.85em; font-weight: 600; text-transform: uppercase;">${confidenceLevel}</span>`;
             html += `</div>`;
 
-            html += `<div class="technique-description">`;
-            html += `Match count: <strong>${matchCount}</strong>`;
-            html += `</div>`;
-
-            html += `<div class="technique-footer">`;
-            html += `<span class="technique-tactic">Tactic: ${escapeHtml(tech.tactic || 'Unknown')}</span>`;
-            html += `<a href="https://attack.mitre.org/techniques/${tech.id}/" target="_blank" rel="noopener" class="technique-link">View in ATT&CK Framework ↗</a>`;
+            html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
+            html += `<span style="font-size: 0.9em; color: var(--text-secondary);">Matches: <strong style="color: var(--accent-green);">${matchCount}</strong></span>`;
+            html += `<a href="https://attack.mitre.org/techniques/${tech.id.replace('.', '/')}/" target="_blank" rel="noopener" style="color: var(--accent-cyan); text-decoration: none; font-size: 0.9em; display: flex; align-items: center; gap: 5px;">
+                <span>View Details</span>
+                <span>↗</span>
+            </a>`;
             html += `</div>`;
 
             html += `</div>`;
@@ -1319,8 +1461,7 @@ function generateTechniquesDetail() {
 
         html += `</div>`;
     });
-    
-    html += '</div>';
+
     return html;
 }
 

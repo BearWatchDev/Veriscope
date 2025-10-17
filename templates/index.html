@@ -5,6 +5,980 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Veriscope - Malware Analysis Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* Index Page Enhancements */
+        .upload-section {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .upload-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan), var(--accent-green));
+            background-size: 200% auto;
+            animation: gradient-shift 3s linear infinite;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 0% center; }
+            100% { background-position: 200% center; }
+        }
+
+        .upload-section h2 {
+            color: var(--accent-green);
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            text-align: center;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            color: var(--accent-cyan);
+            font-weight: bold;
+            margin-bottom: 6px;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .form-group input[type="file"],
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95em;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input[type="file"]:hover,
+        .form-group input[type="text"]:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.2);
+        }
+
+        .form-group input[type="file"]:focus,
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-green);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .hint {
+            color: var(--text-secondary);
+            font-size: 0.75em;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 14px 24px;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            border: none;
+            border-radius: 8px;
+            color: var(--bg-primary);
+            font-size: 1.05em;
+            font-weight: bold;
+            font-family: 'Consolas', 'Monaco', monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-top: 8px;
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(0, 255, 136, 0.5);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        #new-analysis-btn .btn-primary {
+            width: auto;
+            padding: 12px 30px;
+            font-size: 1em;
+        }
+
+        /* Progress Section - Activity Feed */
+        .progress-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .progress-header h3 {
+            color: var(--accent-cyan);
+            margin-bottom: 5px;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .progress-header h3::before {
+            content: '◆';
+            font-size: 1.3em;
+            color: var(--accent-green);
+            text-shadow:
+                0 0 10px rgba(0, 255, 136, 0.6),
+                0 0 20px rgba(0, 255, 136, 0.4);
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                text-shadow:
+                    0 0 10px rgba(0, 255, 136, 0.6),
+                    0 0 20px rgba(0, 255, 136, 0.4);
+            }
+            50% {
+                text-shadow:
+                    0 0 15px rgba(0, 255, 136, 0.8),
+                    0 0 30px rgba(0, 255, 136, 0.6);
+            }
+        }
+
+        /* Fade out animation for spinner */
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+            }
+            to {
+                opacity: 0;
+            }
+        }
+
+        /* Slide up animation for activity feed */
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .fade-out {
+            animation: fadeOut 0.5s ease-out forwards;
+        }
+
+        .slide-up {
+            animation: slideUp 0.6s ease-out forwards;
+        }
+
+        /* Real-Time Stats Cards */
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
+            opacity: 0.5;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.15);
+        }
+
+        .stat-icon {
+            font-size: 1.8em;
+            color: var(--accent-cyan);
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+            flex-shrink: 0;
+        }
+
+        .stat-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .stat-label {
+            font-size: 0.7em;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 1.1em;
+            color: var(--accent-green);
+            font-weight: bold;
+            font-family: 'Consolas', 'Monaco', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+        }
+
+        /* Responsive stats cards */
+        @media (max-width: 768px) {
+            .stats-cards {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Activity Feed */
+        .activity-feed {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 12px;
+            max-height: 250px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            line-height: 1.8;
+        }
+
+        .activity-feed::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .activity-feed::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+            border-radius: 4px;
+        }
+
+        .activity-feed::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--accent-green), var(--accent-cyan));
+            border-radius: 4px;
+        }
+
+        .activity-feed::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, var(--accent-cyan), var(--accent-green));
+        }
+
+        .activity-item {
+            padding: 6px 0;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            animation: slideInLeft 0.3s ease;
+        }
+
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .activity-item .icon {
+            flex-shrink: 0;
+            font-size: 1em;
+            margin-top: 2px;
+        }
+
+        .activity-item.success {
+            color: var(--accent-green);
+        }
+
+        .activity-item.success .icon {
+            color: var(--accent-green);
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+
+        .activity-item.info {
+            color: var(--accent-cyan);
+        }
+
+        .activity-item.info .icon {
+            color: var(--accent-cyan);
+        }
+
+        .activity-item.status {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .activity-item.status .icon {
+            color: var(--accent-cyan);
+        }
+
+        .activity-item.complete {
+            color: var(--accent-green);
+            font-weight: bold;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .activity-item.complete .icon {
+            color: var(--accent-green);
+            text-shadow: 0 0 15px rgba(0, 255, 136, 0.6);
+        }
+
+        /* Summary Cards Complete Overhaul */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan), var(--accent-green));
+            background-size: 200% auto;
+        }
+
+        .card::after {
+            content: '◆';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 8em;
+            color: var(--accent-cyan);
+            opacity: 0.05;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .clickable-card {
+            cursor: pointer;
+        }
+
+        .clickable-card:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 6px 30px rgba(0, 212, 255, 0.3);
+            transform: translateY(-5px);
+        }
+
+        .clickable-card:hover::before {
+            animation: gradient-shift 1.5s linear infinite;
+        }
+
+        .clickable-card:hover::after {
+            opacity: 0.12;
+            text-shadow:
+                0 0 30px rgba(0, 212, 255, 0.6),
+                0 0 60px rgba(0, 212, 255, 0.4);
+        }
+
+        .card-content {
+            position: relative;
+            z-index: 1;
+            padding: 18px 12px;
+        }
+
+        .card h3 {
+            color: var(--accent-green);
+            margin-bottom: 10px;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: bold;
+        }
+
+        .card .stat {
+            font-size: 2.5em;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+            line-height: 1;
+        }
+
+        .card-hint {
+            color: var(--text-secondary);
+            font-size: 0.7em;
+            display: block;
+            margin-top: 8px;
+            opacity: 0.6;
+            transition: all 0.3s ease;
+            text-transform: none;
+            letter-spacing: 0.5px;
+        }
+
+        .clickable-card:hover .card-hint {
+            opacity: 1;
+            color: var(--accent-cyan);
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+
+        /* Tabs Complete Overhaul - Sleek Segmented Control */
+        .tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0;
+            margin-bottom: 15px;
+            padding: 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tabs::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan), var(--accent-green));
+            background-size: 200% auto;
+            pointer-events: none;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px 16px;
+            background: transparent;
+            border: none;
+            border-right: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            position: relative;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+        }
+
+        .tab-btn:last-child {
+            border-right: none;
+        }
+
+        .tab-btn::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+            pointer-events: none;
+        }
+
+        .tab-btn:hover {
+            background: rgba(0, 212, 255, 0.05);
+            color: var(--accent-cyan);
+        }
+
+        .tab-btn:hover::after {
+            transform: scaleX(1);
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 212, 255, 0.15));
+            color: var(--accent-green);
+        }
+
+        .tab-btn.active::after {
+            transform: scaleX(1);
+            height: 4px;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.6);
+        }
+
+        /* Responsive tabs for mobile */
+        @media (max-width: 768px) {
+            .tabs {
+                flex-wrap: wrap;
+            }
+
+            .tab-btn {
+                flex: 1 1 calc(50% - 1px);
+                border-right: 1px solid var(--border-color);
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .tab-btn:nth-child(2n) {
+                border-right: none;
+            }
+
+            .tab-btn:nth-last-child(-n+2) {
+                border-bottom: none;
+            }
+        }
+
+        /* Tab Content */
+        .tab-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .tab-content h3 {
+            color: var(--accent-green);
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Results Section */
+        .results-section h2 {
+            color: var(--accent-cyan);
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            text-align: center;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+
+        /* Loading Spinner - Modern Design with Pulsing Logo */
+        .loading {
+            text-align: center;
+            padding: 20px 20px 15px 20px;
+        }
+
+        .spinner-container {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            margin: 0 auto 12px;
+        }
+
+        /* Outer spinning ring with gradient */
+        .spinner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 4px solid transparent;
+            border-radius: 50%;
+            border-top-color: var(--accent-green);
+            border-right-color: var(--accent-cyan);
+            animation: spin 2.8s ease-in-out infinite;
+            filter: drop-shadow(0 0 10px rgba(0, 255, 136, 0.4));
+        }
+
+        /* Inner spinning ring (counter-clockwise) */
+        .spinner::before {
+            content: '';
+            position: absolute;
+            top: 7px;
+            left: 7px;
+            right: 7px;
+            bottom: 7px;
+            border: 3px solid transparent;
+            border-radius: 50%;
+            border-bottom-color: var(--accent-cyan);
+            border-left-color: var(--accent-green);
+            animation: spin-reverse 3.3s ease-in-out infinite;
+        }
+
+        /* Pulsing V logo in center */
+        .spinner-logo {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 84px;
+            height: 84px;
+            margin-top: -42px;
+            margin-left: -42px;
+            z-index: 2;
+            animation: pulse-logo 4s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes spin-reverse {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(-360deg);
+            }
+        }
+
+        @keyframes pulse-logo {
+            0%, 100% {
+                transform: scale(0.88);
+                filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.3))
+                        drop-shadow(0 0 12px rgba(0, 212, 255, 0.2));
+                opacity: 0.85;
+            }
+            25% {
+                transform: scale(0.95);
+                filter: drop-shadow(0 0 12px rgba(0, 255, 136, 0.4))
+                        drop-shadow(0 0 18px rgba(0, 212, 255, 0.3));
+                opacity: 0.92;
+            }
+            50% {
+                transform: scale(1.12);
+                filter: drop-shadow(0 0 18px rgba(0, 255, 136, 0.6))
+                        drop-shadow(0 0 28px rgba(0, 212, 255, 0.5))
+                        drop-shadow(0 0 40px rgba(0, 255, 136, 0.3));
+                opacity: 1;
+            }
+            75% {
+                transform: scale(0.95);
+                filter: drop-shadow(0 0 12px rgba(0, 255, 136, 0.4))
+                        drop-shadow(0 0 18px rgba(0, 212, 255, 0.3));
+                opacity: 0.92;
+            }
+        }
+
+        .loading p {
+            color: var(--accent-cyan);
+            font-size: 0.95em;
+            font-weight: 500;
+            text-shadow: 0 0 8px rgba(0, 212, 255, 0.25);
+            animation: fade-pulse 2s ease-in-out infinite;
+            margin: 0;
+        }
+
+        @keyframes fade-pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        /* Modal Complete Overhaul */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            margin: 3% auto;
+            padding: 0;
+            border: 1px solid var(--border-color);
+            border-radius: 0;
+            width: 85%;
+            max-width: 1000px;
+            max-height: 85vh;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+            animation: slideDown 0.3s ease;
+            position: relative;
+        }
+
+        .modal-content::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan), var(--accent-green));
+            background-size: 200% auto;
+            animation: gradient-shift 3s linear infinite;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-40px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .modal-header {
+            background: var(--bg-primary);
+            padding: 25px 30px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        .modal-header::before {
+            content: '◆';
+            position: absolute;
+            left: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 2em;
+            color: var(--accent-cyan);
+            opacity: 0.15;
+        }
+
+        .modal-content h2 {
+            color: var(--accent-green);
+            margin: 0;
+            font-size: 1.6em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 1;
+            padding-left: 40px;
+        }
+
+        .close {
+            color: var(--text-secondary);
+            font-size: 36px;
+            font-weight: 300;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            line-height: 1;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: transparent;
+            border: 2px solid transparent;
+        }
+
+        .close:hover {
+            color: var(--accent-danger);
+            background: rgba(255, 68, 68, 0.1);
+            border-color: var(--accent-danger);
+            transform: rotate(90deg);
+            box-shadow: 0 0 20px rgba(255, 68, 68, 0.3);
+        }
+
+        .modal-body {
+            padding: 20px;
+            max-height: calc(85vh - 100px);
+            overflow-y: auto;
+        }
+
+        .modal-body::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .modal-body::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+            border-radius: 0;
+        }
+
+        .modal-body::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--accent-green), var(--accent-cyan));
+            border-radius: 10px;
+        }
+
+        .modal-body::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, var(--accent-cyan), var(--accent-green));
+        }
+
+        /* Modal Content Sections */
+        .modal-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 3px solid var(--accent-cyan);
+        }
+
+        .modal-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .modal-section h3 {
+            color: var(--accent-cyan);
+            font-size: 1.1em;
+            margin: 0 0 12px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .modal-section p,
+        .modal-section ul,
+        .modal-section ol {
+            color: var(--text-secondary);
+            line-height: 1.8;
+            margin: 0;
+        }
+
+        .modal-section ul,
+        .modal-section ol {
+            padding-left: 25px;
+        }
+
+        .modal-section li {
+            margin-bottom: 8px;
+        }
+
+        .modal-section code,
+        .modal-section pre {
+            background: var(--bg-secondary);
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: var(--accent-green);
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+
+        .modal-section pre {
+            display: block;
+            padding: 15px;
+            margin: 10px 0;
+            overflow-x: auto;
+            border-left: 3px solid var(--accent-green);
+        }
+
+        /* Modal stat badges */
+        .modal-stat {
+            display: inline-block;
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 212, 255, 0.15));
+            color: var(--accent-green);
+            padding: 6px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin: 5px 5px 5px 0;
+            border: 1px solid var(--accent-green);
+        }
+
+        /* Modal list items with icons */
+        .modal-section ul.icon-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .modal-section ul.icon-list li {
+            padding-left: 25px;
+            position: relative;
+        }
+
+        .modal-section ul.icon-list li::before {
+            content: '◆';
+            position: absolute;
+            left: 0;
+            color: var(--accent-green);
+            font-size: 0.8em;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .upload-section {
+                padding: 20px;
+            }
+
+            .summary-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .tabs {
+                flex-direction: column;
+            }
+
+            .modal-content {
+                width: 95%;
+                margin: 10% auto;
+            }
+
+            /* Stack form fields on mobile */
+            div[style*="grid-template-columns: 1fr 1fr"] {
+                grid-template-columns: 1fr !important;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -35,43 +1009,87 @@
                         <p class="hint">Supported: .txt, .log, .ps1, .bat, .sh, .js, .vbs, .exe, .dll, .bin (max 100MB)</p>
                     </div>
 
-                    <div class="form-group">
-                        <label for="rule_name">Rule Name:</label>
-                        <input type="text" id="rule_name" name="rule_name" value="Suspicious_Activity" placeholder="e.g., PhishingCampaign">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="rule_name">Rule Name:</label>
+                            <input type="text" id="rule_name" name="rule_name" value="Suspicious_Activity" placeholder="e.g., PhishingCampaign">
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="author">Author:</label>
+                            <input type="text" id="author" name="author" value="Veriscope" placeholder="Your name or team">
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="author">Author:</label>
-                        <input type="text" id="author" name="author" value="Veriscope" placeholder="Your name or team">
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.9em; font-weight: normal; text-transform: none; letter-spacing: 0;">
+                            <input type="checkbox" id="auto-show-results" checked style="width: auto; cursor: pointer;">
+                            <span>Automatically show results when analysis completes</span>
+                        </label>
+                        <p class="hint" style="margin-left: 28px;">Uncheck to review the activity log before viewing results</p>
                     </div>
 
-                    <button type="submit" class="btn-primary">🚀 Analyze File</button>
+                    <button type="submit" class="btn-primary">Analyze File</button>
                 </form>
             </div>
 
             <!-- New Analysis Button (hidden by default, shown after results) -->
             <div id="new-analysis-btn" style="display: none; text-align: center; margin: 30px auto;">
-                <button onclick="resetForNewAnalysis()" class="btn-primary" style="font-size: 1.1em; padding: 15px 40px;">
-                    📁 Upload New File for Analysis
+                <button onclick="resetForNewAnalysis()" class="btn-primary">
+                    Upload New File for Analysis
                 </button>
             </div>
 
             <!-- Progress Section -->
             <div id="loading" class="loading" style="display: none;">
-                <div class="spinner"></div>
+                <div class="spinner-container">
+                    <div class="spinner"></div>
+                    <img src="{{ url_for('static', filename='img/veriscope.png') }}" alt="Veriscope" class="spinner-logo">
+                </div>
                 <p>Analyzing file... This may take a moment.</p>
             </div>
 
             <div id="progress-container" class="progress-container" style="display: none;">
                 <div class="progress-header">
-                    <h3>🔍 Deobfuscation Progress</h3>
-                    <p id="progress-text">Starting analysis...</p>
+                    <h3>Analysis Activity</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.9em; margin: 5px 0 0 0;">Real-time deobfuscation progress</p>
                 </div>
-                <div class="progress-bar-container">
-                    <div id="progress-bar" class="progress-bar"></div>
+
+                <!-- Real-Time Stats Cards -->
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <div class="stat-icon">◈</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Strategy</div>
+                            <div class="stat-value" id="stat-strategy">balanced</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">◆</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Current Method</div>
+                            <div class="stat-value" id="stat-method">—</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">◇</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Layers</div>
+                            <div class="stat-value" id="stat-layers">0</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="progress-preview">
-                    <code id="progress-preview"></code>
+
+                <!-- Activity Feed -->
+                <div id="activity-feed" class="activity-feed">
+                    <!-- Messages will be appended here by JavaScript -->
+                </div>
+
+                <!-- View Results Button (shown when analysis completes if auto-show disabled) -->
+                <div id="view-results-btn" style="display: none; margin-top: 15px; text-align: center;">
+                    <button onclick="showAnalysisResults()" class="btn-primary" style="width: auto; padding: 12px 30px; font-size: 1em;">
+                        View Results
+                    </button>
                 </div>
             </div>
 
@@ -81,34 +1099,42 @@
 
                 <div class="summary-cards">
                     <div class="card clickable-card" onclick="showDetailModal('strings')" title="Click for detailed string analysis">
-                        <h3>Strings</h3>
-                        <p class="stat" id="stat-strings">0</p>
-                        <span class="card-hint">Click for details ▸</span>
+                        <div class="card-content">
+                            <h3>Strings</h3>
+                            <p class="stat" id="stat-strings">0</p>
+                            <span class="card-hint">Click for details ▸</span>
+                        </div>
                     </div>
                     <div class="card clickable-card" onclick="showDetailModal('decoded')" title="Click for deobfuscation trace">
-                        <h3>Decoded</h3>
-                        <p class="stat" id="stat-decoded">0</p>
-                        <span class="card-hint">Click for details ▸</span>
+                        <div class="card-content">
+                            <h3>Decoded</h3>
+                            <p class="stat" id="stat-decoded">0</p>
+                            <span class="card-hint">Click for details ▸</span>
+                        </div>
                     </div>
                     <div class="card clickable-card" onclick="showDetailModal('iocs')" title="Click for IOC breakdown">
-                        <h3>IOCs</h3>
-                        <p class="stat" id="stat-iocs">0</p>
-                        <span class="card-hint">Click for details ▸</span>
+                        <div class="card-content">
+                            <h3>IOCs</h3>
+                            <p class="stat" id="stat-iocs">0</p>
+                            <span class="card-hint">Click for details ▸</span>
+                        </div>
                     </div>
                     <div class="card clickable-card" onclick="showDetailModal('techniques')" title="Click for ATT&CK mapping">
-                        <h3>ATT&CK Techniques</h3>
-                        <p class="stat" id="stat-techniques">0</p>
-                        <span class="card-hint">Click for details ▸</span>
+                        <div class="card-content">
+                            <h3>ATT&CK Techniques</h3>
+                            <p class="stat" id="stat-techniques">0</p>
+                            <span class="card-hint">Click for details ▸</span>
+                        </div>
                     </div>
                 </div>
 
                 <div class="tabs">
-                    <button class="tab-btn active" onclick="showTab('deobfuscation')">◈ Deobfuscation</button>
-                    <button class="tab-btn" onclick="showTab('iocs')">◉ IOCs</button>
-                    <button class="tab-btn" onclick="showTab('attack')">◎ ATT&CK</button>
-                    <button class="tab-btn" onclick="showTab('yara')">◆ YARA</button>
-                    <button class="tab-btn" onclick="showTab('sigma')">◇ Sigma</button>
-                    <button class="tab-btn" onclick="showTab('report')">◐ Report</button>
+                    <button type="button" class="tab-btn active" onclick="showTab('deobfuscation')">◈ Deobfuscation</button>
+                    <button type="button" class="tab-btn" onclick="showTab('iocs')">◉ IOCs</button>
+                    <button type="button" class="tab-btn" onclick="showTab('attack')">◎ ATT&CK</button>
+                    <button type="button" class="tab-btn" onclick="showTab('yara')">◆ YARA</button>
+                    <button type="button" class="tab-btn" onclick="showTab('sigma')">◇ Sigma</button>
+                    <button type="button" class="tab-btn" onclick="showTab('report')">◐ Report</button>
                 </div>
 
                 <div id="deobfuscation-tab" class="tab-content active">
@@ -148,16 +1174,18 @@
             <div class="made-with-love">
                 Made with <span class="heart">❤</span> for the cybersecurity community
             </div>
-            <p>Veriscope v1.5.0 | MIT License | For ethical & defensive security operations only</p>
+            <p>Veriscope v1.6.0 | MIT License | For ethical & defensive security operations only</p>
         </footer>
     </div>
 
     <!-- Detail Modal -->
     <div id="detail-modal" class="modal" onclick="closeModal(event)" style="display: none;">
         <div class="modal-content" onclick="event.stopPropagation()">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <h2 id="modal-title"></h2>
-            <div id="modal-body"></div>
+            <div class="modal-header">
+                <h2 id="modal-title"></h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
         </div>
     </div>
 
